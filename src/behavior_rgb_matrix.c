@@ -140,7 +140,7 @@ static const struct behavior_parameter_metadata_set no_args_set = {
     .param1_values = no_arg_values,
     .param1_values_len = ARRAY_SIZE(no_arg_values),
 };
-static const struct behavior_parameter_metadata sets[] = {no_args_set};
+static const struct behavior_parameter_metadata_set sets[] = {no_args_set};
 static const struct behavior_parameter_metadata metadata = {
     .sets_len = ARRAY_SIZE(sets),
     .sets = sets,
