@@ -770,14 +770,34 @@ int zmk_rgb_matrix_get_user_state(bool *user_on) {
   return 0;
 }
 
-static int kp_rgb_matrix_layout_init(void) {
-  const struct zmk_physical_layout *const *layouts;
-  size_t layout_count = zmk_physical_layouts_get_list(&layouts);
-  if (layout_count == 0) {
-    LOG_ERR("No physical layout available for the RGB matrix");
-    return -ENODEV;
+/* Key rectangles of the layout named by the "physical-layout" property.
+ *
+ * They are read straight from that devicetree node rather than taken from
+ * ZMK's runtime list of layouts (zmk_physical_layouts_get_list()). That list
+ * holds every enabled zmk,physical-layout in devicetree order, so its first
+ * entry is not necessarily the layout the mapping was written for. On the
+ * Corne, for instance, the 5-column layout (36 keys) comes before the
+ * 6-column one (42 keys): using it left the six thumb keys without an LED and
+ * placed every other key at the wrong coordinates. */
+#define KP_KEY_ATTRS(idx, node_id)                                           \
+  {                                                                          \
+      .width = (int16_t)(int32_t)DT_PHA_BY_IDX(node_id, keys, idx, width),   \
+      .height = (int16_t)(int32_t)DT_PHA_BY_IDX(node_id, keys, idx, height), \
+      .x = (int16_t)(int32_t)DT_PHA_BY_IDX(node_id, keys, idx, x),           \
+      .y = (int16_t)(int32_t)DT_PHA_BY_IDX(node_id, keys, idx, y),           \
   }
-  kp_resolve_layout(layouts[0]);
+
+static const struct zmk_key_physical_attrs kp_layout_keys[KP_NKEYS] = {
+    LISTIFY(KP_NKEYS, KP_KEY_ATTRS, (, ), KP_LAYOUT)};
+
+static const struct zmk_physical_layout kp_layout = {
+    .display_name = DT_PROP(KP_LAYOUT, display_name),
+    .keys = kp_layout_keys,
+    .keys_len = KP_NKEYS,
+};
+
+static int kp_rgb_matrix_layout_init(void) {
+  kp_resolve_layout(&kp_layout);
   return 0;
 }
 SYS_INIT(kp_rgb_matrix_layout_init, POST_KERNEL,
