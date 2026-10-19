@@ -332,6 +332,161 @@ initial state is used at boot. The matrix turns off on idle by default;
 > definitions, things can go out of sync, when you might want to run this
 > `&kprgb RGB_RESET` command manually.
 
+## Colour slots and editable colour maps
+
+The `static` effect can keep its colours by *slot* instead of by LED. A map built
+this way is the same on both halves of a split keyboard, can be edited while the
+keyboard runs, can be saved to flash and is copied to the peripheral half.
+[ZMK Studio](https://zmk.dev/docs/features/studio) is how the edits normally
+arrive (see [ZMK Studio requests](#zmk-studio-requests)). A `static` effect
+without `layer-id` stays fixed, as before.
+
+### Colour slots
+
+A slot is one position of a list of colours (`slot-colors`) and means the same
+thing on both halves, so a single list is valid for the whole keyboard. Declare
+the size of the slot space in the `keypaw,rgb-matrix` node of each half, and
+where the LEDs that are not under a key sit in it:
+
+```dts
+rgb_matrix: rgb-matrix {
+    compatible = "keypaw,rgb-matrix";
+    strip = <&led_strip>;
+    physical-layout = <&foostan_corne_6col_layout>;
+    mapping = < /* as usual */ >;
+
+    slot-count = <54>;                   /* the same on both halves, at most 60 */
+    no-key-slots = <42 43 44 45 46 47>;  /* the other half lists <48 49 50 51 52 53> */
+};
+```
+
+- The slot of an LED under a key is the position of that key in the physical
+  layout, so `slot-count` is at least the number of keys.
+- `no-key-slots` gives the slot of each LED that is not under a key (each
+  `KP_RGB_NO_KEY` entry of `mapping`), in the order of those entries. The slots
+  of the other half's LEDs are left out of the list: a slot that no local LED
+  paints belongs to the other half.
+- A half paints only the slots of its own LEDs.
+
+On a Corne, slots 0 to 41 are the key positions, 42 to 47 the left underglow and
+48 to 53 the right underglow.
+
+### Editable colour maps
+
+A map is a `static` effect with `slot-colors` and, to be editable, `layer-id`:
+
+```dts
+map_fn1: fx_ov_fn1 {
+    compatible = "keypaw,rgb-matrix-static";
+    #binding-cells = <0>;
+    layer-id = <1>;
+    slot-colors = <0xFF8000 0xFF8000 /* ... one colour for every slot ... */>;
+};
+```
+
+`layer-id` (0 to 14, unique among the maps) is the stable id of the keymap layer
+the map belongs to (`Layer.id` in the ZMK Studio protocol), not its position, so
+the map keeps following its layer when the layers are reordered. The usual place
+for a map is as the effect of an overlay whose condition is that layer.
+
+Each map keeps three copies of its colours:
+
+| Copy | What it is | When it changes |
+|---|---|---|
+| defaults | the `slot-colors` of the devicetree, in ROM | only with a new firmware |
+| live | what the LEDs show now | at every edit, which repaints at once |
+| saved | what was last written to flash, or read from it at boot | when saved |
+
+- Without saving, an edit lasts until the keyboard is turned off.
+- Saving, on the central half only, writes one settings record per changed map
+  (`keypaw/rgb_matrix/map/<layer id>`) with just the slots that differ from the
+  defaults. A map that is back to its defaults loses its record. At boot the
+  records are read and win over `slot-colors`, slot by slot. A record is at most
+  2 + 4 x 60 = 242 bytes, below the 256 of `SETTINGS_MAX_VAL_LEN`. Saving needs
+  `CONFIG_SETTINGS=y` (ZMK Studio selects it); without it, a save answers "not
+  supported".
+- Discarding puts the live colours back to the saved ones. Restoring the defaults
+  of a layer puts its live colours back to `slot-colors` (save to keep that).
+- `&kprgb RGB_RESET` and ZMK Studio's "Restore Stock Settings" delete every
+  record and put every map back to its defaults.
+
+The C API for all of this is in `src/rgb_maps.h`.
+
+### Split keyboards
+
+Only the central half saves. It keeps the peripheral up to date by slot, with two
+commands of the split sync (`CONFIG_KEYPAW_RGB_SPLIT_SYNC`): `RGB_MAP_SET_CMD`
+sets one slot of one map and `RGB_MAP_RESET_CMD` puts the maps back to their
+defaults. Every edit is queued and sent one command at a time, 50 ms apart. When
+the peripheral connects (or restarts), the central first sends a reset and then
+only the slots of the peripheral whose colour differs from the defaults. The
+peripheral never writes flash: a peripheral that is turned off comes back with
+the defaults of its own firmware and receives the edits again when it reconnects.
+So after changing `slot-colors` in devicetree, flash the half you changed.
+
+### ZMK Studio requests
+
+`CONFIG_KEYPAW_RGB_MAPS_STUDIO` (on by default when ZMK Studio's RPC is on the
+build, so on the central half) adds six requests and a notification to the
+`keymap` subsystem of ZMK Studio. They exist only in the
+[lenerdz/zmk-studio-messages](https://github.com/lenerdz/zmk-studio-messages)
+fork of the protocol, whose ids start at 100 so that they cannot collide with the
+upstream ones. Like the keymap requests, all of them need the keyboard to be
+unlocked.
+
+| Request | Id | Answer | What it does |
+|---|---|---|---|
+| `get_led_info` | 100 | `LedInfo`: `slot_count`, `layer_ids` (up to 8) and `unsaved_changes` | tells what can be edited |
+| `get_led_map` | 101 | `LedMap`: `layer_id` and `colors` (the 54 live colours, `0xRRGGBB`) | reads one map |
+| `set_led_colors` | 102 | `OK`, `INVALID_LAYER`, `INVALID_SLOT` or `BUSY` (any other failure) | edits up to 16 slots of one map, all or nothing |
+| `save_led_changes` | 103 | the same answer as the keymap's save: ok, or `NOT_SUPPORTED`, `NO_SPACE` or `GENERIC` | writes the changed maps to flash |
+| `discard_led_changes` | 104 | `true` | puts the live colours back to the saved ones |
+| `restore_led_defaults` | 105 | `LedMap`, already restored | puts one map back to its defaults |
+
+The notification `unsaved_led_changes_status_changed` (id 100) says when the live
+colours start or stop differing from the saved ones. A layer without a map in
+`get_led_map` or `restore_led_defaults` answers the `GENERIC` simple error, whose
+value is 0, so a client has to check for it explicitly. A firmware without these
+handlers answers all of them with `RPC_NOT_FOUND`, which is how a client can tell
+that the feature is missing. ZMK Studio's "Restore Stock Settings" also resets
+the maps.
+
+To use it, replace the `zmk-studio-messages` project that ZMK imports from its
+`app/west.yml` with the fork, in the `config/west.yml` of your config repository
+(the same name and path), and add the remote:
+
+```yaml
+manifest:
+  remotes:
+    - name: lenerdz
+      url-base: https://github.com/lenerdz
+  projects:
+    - name: zmk-studio-messages
+      remote: lenerdz
+      revision: <commit>
+      path: modules/msgs/zmk-studio-messages
+```
+
+The stock protocol has none of these requests, so building against it fails.
+
+**Limits.** `slot-count` is at most 60. The 54 colours of `LedMap` are fixed in
+the protocol: with more slots, raise `colors max_count` in `keymap.options.in` of
+the fork (the build checks it). Layer ids go from 0 to 14, `get_led_info` lists up
+to 8 maps and `set_led_colors` carries up to 16 slots.
+
+**Receive buffer.** The receive buffer of ZMK Studio
+(`CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE`) holds 30 bytes by default and drops the
+bytes that do not fit. A request that edits 16 colours is 158 bytes once framed
+(up to about 210 when many of its bytes need an escape), so put
+`CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=256` in the config of the central half. The
+build fails when the buffer is smaller.
+
+**Status.** The codec of the flash record has host tests
+(`tests/unit/test_map_codec.py`). The rest builds in the CI of
+[lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk) and has not been tried
+on a real keyboard yet: the live edit, the save to flash, the discard and the copy
+to the peripheral half.
+
 ## Built-in components
 
 This ZMK module is designed to be extensible: you can implement effects and
@@ -451,8 +606,13 @@ to a copy-and-pastable devicetree snippet that produced it.
 </td></tr>
 <tr><td><code><a href="https://gudzpoz.github.io/zmk-rgb-matrix/#static">static</a></code></td>
     <td>Fixed per-LED colour map (QMK <code>ALPHAS_MODS</code> and similar art); each LED
-        takes a colour from the <code>led-colors</code> array.</td>
-    <td><code>led-colors</code> (RGB values, one per LED by chain index; LEDs past the end stay off)</td></tr>
+        takes a colour from the <code>slot-colors</code> array (by colour slot) or, without it,
+        from the <code>led-colors</code> array (by LED).</td>
+    <td><code>slot-colors</code> (RGB values, one per colour slot; needs <code>slot-count</code> on the
+        <code>keypaw,rgb-matrix</code> node), <code>layer-id</code> (makes the map editable at run time, see
+        <a href="#colour-slots-and-editable-colour-maps">Colour slots and editable colour maps</a>),
+        <code>led-colors</code> (RGB values, one per LED by chain index, used only without
+        <code>slot-colors</code>; LEDs past the end stay off)</td></tr>
 <tr><td colspan="3">
 <a href="https://gudzpoz.github.io/zmk-rgb-matrix/#static">default</a>: <img src="https://gudzpoz.github.io/zmk-rgb-matrix/static.gif" width="200" alt="Static" title="Static">
 </td></tr>
