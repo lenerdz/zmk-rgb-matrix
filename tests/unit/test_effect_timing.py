@@ -86,6 +86,10 @@ static size_t kp_rgb_led_for_position(uint32_t p) {return p;}
 static const struct kp_rgb_coord *kp_rgb_led_coord(size_t p) {
     return p<KP_LED_COUNT?&coords[p]:NULL;
 }
+/* Colour slots (zmk/rgb_matrix.h, rgb_maps.h): as many as LEDs here, in LED order. */
+#define KP_RGB_SLOT_COUNT 4
+#define KP_RGB_SLOT_CAP 4
+static size_t kp_rgb_slot_for_led(size_t led) {return led<4?led:SIZE_MAX;}
 '''
 
 VARIANTS = {"rain": 5, "breathe": 5, "rainbow": 56, "band": 6,

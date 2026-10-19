@@ -33,6 +33,21 @@
  * before the kp_rgb_save_state() the other commands end with. */
 #define RGB_CLOCK_CMD 0x103
 
+/* Module-local, internal commands for the editable per-layer color maps (the
+ * `static` effect instances that declare `layer-id`). The central pushes its
+ * edits to a peripheral with them. Like RGB_OVL_STATE_CMD they are not
+ * user-bindable and their handlers return before the kp_rgb_save_state() the
+ * other commands end with, so they never write to flash.
+ *
+ * param1 holds the command in its low 12 bits and the layer id of the map in
+ * bits 12 to 15 (RGB_MAP_PARAM1 in src/rgb_maps.h); in RGB_MAP_RESET_CMD the
+ * layer id 0xF means every map.
+ *
+ *   RGB_MAP_SET_CMD    param2 = (slot << 24) | 0xRRGGBB: one slot of one map.
+ *   RGB_MAP_RESET_CMD  param2 is unused: back to the devicetree defaults. */
+#define RGB_MAP_SET_CMD 0x104
+#define RGB_MAP_RESET_CMD 0x105
+
 /* A "mapping" entry is one of two things:
  *
  *   - a plain integer N  -> the LED sits under key position N in the

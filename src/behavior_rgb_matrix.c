@@ -18,6 +18,7 @@
 #include <zmk/keymap.h>
 #include <zmk/rgb_matrix.h>
 
+#include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -564,6 +565,11 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
   ARG_UNUSED(event);
   int ret;
+  if (RGB_MAP_IS_CMD(binding->param1)) {
+    /* An edit of the colour maps, sent by the central to its peripheral. Not part
+     * of the saved state, so no kp_rgb_save_state(). */
+    return kp_rgb_map_command(binding->param1, binding->param2);
+  }
   switch (binding->param1) {
   case RGB_TOG_CMD:
     ret = zmk_rgb_matrix_toggle();

@@ -11,6 +11,11 @@
  * parameters. A send that fails is retried with bounded backoff while the
  * peripheral stays present.
  *
+ * The same machinery carries the editable colour maps (rgb_maps.c): after the
+ * overlays, a last phase resets the peripheral's maps and then sends, one slot at
+ * a time, every slot the peripheral paints whose live colour differs from what the
+ * peripheral is known to hold. An edit made later queues that phase again.
+ *
  * Central only; the trigger is a poll, as there is no central-side "peripheral
  * connected" event.
  */
@@ -31,9 +36,18 @@
 #include <zmk/split/central.h>
 #include <zmk/split/transport/central.h>
 
+#include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+
+/* The maps are synced when there is at least one and the halves share a slot
+ * space (rgb_maps.h). */
+#if KP_RGB_MAP_COUNT > 0 && KP_RGB_SLOT_COUNT > 0
+#define KP_RGB_SYNC_HAS_MAPS 1
+#else
+#define KP_RGB_SYNC_HAS_MAPS 0
+#endif
 
 #define KP_RGB_SYNC_SOURCES MAX(ZMK_SPLIT_CENTRAL_PERIPHERAL_COUNT, 1)
 #define KP_RGB_SYNC_NO_EFFECT UINT16_MAX
@@ -47,6 +61,7 @@ enum kp_rgb_sync_phase {
   KP_RGB_SYNC_DURATION, /* RGB_SPI_CMD on the now-active effect */
   KP_RGB_SYNC_POWER,    /* RGB_ON_CMD / RGB_OFF_CMD */
   KP_RGB_SYNC_OVERLAYS,
+  KP_RGB_SYNC_MAPS, /* colour maps; also queued alone by an edit */
 };
 
 enum kp_rgb_sync_emit {
@@ -70,6 +85,14 @@ struct kp_rgb_sync_source {
   uint16_t duration_ms;
   struct kp_rgb_hsb color;
   bool user_on;
+#if KP_RGB_SYNC_HAS_MAPS
+  /* False until the source's maps have been reset in this connection, which
+   * makes `shadow` (below) the defaults. */
+  bool maps_primed;
+  /* The colour the source is known to hold for every slot of every map, laid out
+   * like kp_rgb_maps_fill_defaults() fills it. */
+  uint32_t shadow[KP_RGB_MAP_COUNT * KP_RGB_SLOT_CAP];
+#endif
 };
 
 static struct k_work_delayable kp_rgb_sync_poll;
@@ -77,6 +100,10 @@ static struct k_work_delayable kp_rgb_sync_step;
 static struct k_work_delayable kp_rgb_sync_clock;
 static struct kp_rgb_sync_source kp_rgb_sync_sources[KP_RGB_SYNC_SOURCES];
 static const struct zmk_split_transport_central *kp_rgb_sync_transport;
+#if KP_RGB_SYNC_HAS_MAPS
+static struct k_work kp_rgb_sync_maps_work;
+static volatile bool kp_rgb_sync_maps_ready;
+#endif
 
 /* Registration order is priority order, and a NULL get_status means "always
  * available". active_transport is private to the split central, so the transport
@@ -110,6 +137,9 @@ static void kp_rgb_sync_refresh(void) {
       kp_rgb_sync_sources[i].pending = false;
       kp_rgb_sync_sources[i].retry_count = 0;
       kp_rgb_sync_sources[i].synced_effect = KP_RGB_SYNC_NO_EFFECT;
+#if KP_RGB_SYNC_HAS_MAPS
+      kp_rgb_sync_sources[i].maps_primed = false;
+#endif
     }
   }
 
@@ -142,6 +172,9 @@ static void kp_rgb_sync_refresh(void) {
       st->phase = KP_RGB_SYNC_SELECT;
       st->mask_word = 0;
       st->synced_effect = KP_RGB_SYNC_NO_EFFECT;
+#if KP_RGB_SYNC_HAS_MAPS
+      st->maps_primed = false; /* its maps are reset before anything is pushed */
+#endif
       /* A peripheral is marked connected before its GATT characteristics are
        * discovered, and the split worker silently drops commands in that
        * window. */
@@ -154,6 +187,9 @@ static void kp_rgb_sync_refresh(void) {
       st->seen = false;
       st->pending = false; /* abort in flight; a reconnect re-syncs */
       st->synced_effect = KP_RGB_SYNC_NO_EFFECT;
+#if KP_RGB_SYNC_HAS_MAPS
+      st->maps_primed = false; /* it may have rebooted */
+#endif
     } else if (present[s] && st->seen && !st->pending &&
                st->synced_effect != active) {
       /* Active effect changed to one this source has not received. */
@@ -221,9 +257,48 @@ static void kp_rgb_sync_clock_handler(struct k_work *work) {
                               K_MSEC(CONFIG_KEYPAW_RGB_SPLIT_SYNC_CLOCK_MS));
 }
 
+#if KP_RGB_SYNC_HAS_MAPS
+/* The maps phase: reset the source's maps once per connection, then send the
+ * slots that differ, one per call. The live colours are read afresh on every
+ * call, so an edit made while this runs is picked up. */
+static enum kp_rgb_sync_emit kp_rgb_sync_emit_maps(uint8_t source,
+                                                   struct kp_rgb_sync_source *st) {
+  if (!st->maps_primed) {
+    if (!kp_rgb_sync_send(source, RGB_MAP_PARAM1(RGB_MAP_RESET_CMD, RGB_MAP_ALL),
+                          0)) {
+      return KP_RGB_SYNC_EMIT_RETRY;
+    }
+    kp_rgb_maps_fill_defaults(st->shadow);
+    st->maps_primed = true;
+    return KP_RGB_SYNC_EMIT_SENT;
+  }
+
+  size_t map, slot;
+  uint32_t rgb;
+
+  if (kp_rgb_maps_next_peer_diff(st->shadow, &map, &slot, &rgb)) {
+    if (!kp_rgb_sync_send(source,
+                          RGB_MAP_PARAM1(RGB_MAP_SET_CMD, kp_rgb_map_layer_id(map)),
+                          RGB_MAP_SET_VAL(slot, rgb))) {
+      return KP_RGB_SYNC_EMIT_RETRY;
+    }
+    st->shadow[map * KP_RGB_SLOT_CAP + slot] = rgb;
+    return KP_RGB_SYNC_EMIT_SENT;
+  }
+
+  LOG_INF("Complete for source %u", source);
+  return KP_RGB_SYNC_EMIT_DONE;
+}
+#endif /* KP_RGB_SYNC_HAS_MAPS */
+
 /* Emits at most one wire command. */
 static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
                                                   struct kp_rgb_sync_source *st) {
+#if KP_RGB_SYNC_HAS_MAPS
+  if (st->phase == KP_RGB_SYNC_MAPS) {
+    return kp_rgb_sync_emit_maps(source, st);
+  }
+#endif
   if (st->phase != KP_RGB_SYNC_OVERLAYS) {
     uint32_t cmd, arg;
     switch (st->phase) {
@@ -280,9 +355,47 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
     return KP_RGB_SYNC_EMIT_SENT;
   }
 
+#if KP_RGB_SYNC_HAS_MAPS
+  st->phase = KP_RGB_SYNC_MAPS;
+  return KP_RGB_SYNC_EMIT_SENT;
+#else
   LOG_INF("Complete for source %u", source);
   return KP_RGB_SYNC_EMIT_DONE;
+#endif
 }
+
+#if KP_RGB_SYNC_HAS_MAPS
+/* Runs on the module work queue, like every other handler here, so it cannot
+ * interleave with a step: queues the maps phase for every source that is idle. A
+ * source that is busy reaches the phase on its own, and reads the live colours
+ * only then. */
+static void kp_rgb_sync_maps_work_handler(struct k_work *work) {
+  ARG_UNUSED(work);
+  int64_t now = k_uptime_get();
+  bool queued = false;
+
+  for (size_t s = 0; s < ARRAY_SIZE(kp_rgb_sync_sources); s++) {
+    struct kp_rgb_sync_source *st = &kp_rgb_sync_sources[s];
+
+    if (st->seen && !st->pending) {
+      st->pending = true;
+      st->retry_count = 0;
+      st->phase = KP_RGB_SYNC_MAPS;
+      st->ready_at = now;
+    }
+    queued = queued || st->pending;
+  }
+  if (queued) {
+    k_work_reschedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_step, K_NO_WAIT);
+  }
+}
+
+void kp_rgb_sync_maps_kick(void) {
+  if (kp_rgb_sync_maps_ready) {
+    k_work_submit_to_queue(kp_rgb_work_q(), &kp_rgb_sync_maps_work);
+  }
+}
+#endif /* KP_RGB_SYNC_HAS_MAPS */
 
 static void kp_rgb_sync_step_handler(struct k_work *work) {
   ARG_UNUSED(work);
@@ -350,6 +463,10 @@ static int kp_rgb_split_sync_init(void) {
   k_work_init_delayable(&kp_rgb_sync_poll, kp_rgb_sync_poll_handler);
   k_work_init_delayable(&kp_rgb_sync_step, kp_rgb_sync_step_handler);
   k_work_init_delayable(&kp_rgb_sync_clock, kp_rgb_sync_clock_handler);
+#if KP_RGB_SYNC_HAS_MAPS
+  k_work_init(&kp_rgb_sync_maps_work, kp_rgb_sync_maps_work_handler);
+  kp_rgb_sync_maps_ready = true;
+#endif
   /* The module work queue is started at POST_KERNEL, well before this. The
    * first poll is delayed rather than immediate to stay clear of the
    * settings_load() that runs at the top of main(). */

@@ -62,6 +62,16 @@ static int settings_save_one(const char *path, const void *value, size_t size) {
 static int settings_delete(const char *path) {
     assert(!held); deletes++; strcpy(deleted_path,path); return 0;
 }
+/* The editable colour maps (rgb_maps.c): only the dispatch and the reset hook are
+ * checked here; their own logic has its own tests. */
+static unsigned map_loads, map_resets;
+static char map_loaded_name[16];
+static size_t map_loaded_len;
+static int kp_rgb_maps_load(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg) {
+    (void)read_cb; (void)cb_arg;
+    map_loads++; strcpy(map_loaded_name, name); map_loaded_len = len; return 0;
+}
+static int kp_rgb_maps_settings_reset(void) { map_resets++; return 0; }
 static unsigned reads;
 static int read_blob(void *arg, void *out, size_t len) {
     reads++; memcpy(out,arg,len); return (int)len;
@@ -168,6 +178,12 @@ int main(void) {
     assert(deletes == 3 && !strcmp(deleted_path, "keypaw/rgb_matrix/state/effects/b"));
     assert(kp_rgb_selected_effect() == 0 && kp_rgb_controller.brightness == 70);
     assert(kp_rgb_controller.state.user_on && data[0].color.h == 10 && !held);
+
+    /* The colour maps are cleared with the rest of the state, and a key under
+     * "map/" is theirs, not an effect's. */
+    assert(map_resets == 1);
+    assert(registered_set("map/3", 5, read_blob, "abcde") == 0);
+    assert(map_loads == 1 && !strcmp(map_loaded_name, "3") && map_loaded_len == 5);
 
     /* Identity is the persist-id or node name, never the registry ordinal: stored
      * state must follow its effect across reordering, removal and addition. */

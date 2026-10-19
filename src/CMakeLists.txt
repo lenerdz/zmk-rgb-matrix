@@ -43,6 +43,9 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX
   # controller and effect persistence
   behavior_rgb_matrix.c
   rgb_settings.c
+  # editable colour maps: registry, live edits, flash records and their codec
+  rgb_maps.c
+  rgb_map_codec.c
   # global oscillators and static fields
   effects/solid.c
   effects/breathe.c
@@ -68,3 +71,14 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_TRIGGERS rgb_triggers.c)
 # Split state sync: central-only, because it needs the transport's connected
 # source list, which only exists on the central.
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_SPLIT_SYNC rgb_split_sync.c)
+
+# ZMK Studio access to the colour maps: central-only, because ZMK Studio is.
+# studio_rpc.c includes the headers that ZMK generates from the .proto files
+# (<build>/proto/zmk/*.pb.h) as part of its own `app` target, so this library
+# needs that directory on its include path and must not compile before `app`
+# has generated them.
+if(CONFIG_KEYPAW_RGB_MAPS_STUDIO)
+  zephyr_library_sources(studio_rpc.c)
+  zephyr_library_include_directories(${CMAKE_BINARY_DIR})
+  add_dependencies(${ZEPHYR_CURRENT_LIBRARY} app)
+endif()

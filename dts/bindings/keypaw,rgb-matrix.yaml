@@ -50,3 +50,28 @@ properties:
       must equal the chain-length of "strip", and is empty when "strip" is
       omitted.
 
+  slot-count:
+    type: int
+    required: false
+    description: |
+      Size of the color slot space, the same on every half of a split keyboard.
+      A slot holds one color of a keypaw,rgb-matrix-static map. The slot of an
+      LED under a key is that key's position, so this must be at least the number
+      of keys of "physical-layout"; the slots above the keys belong to the LEDs
+      that are not under a key (see "no-key-slots"), including those of the other
+      half. Because a slot means the same thing on both halves, one list of
+      "slot-colors" is valid for both, and an edit made on the central can be
+      sent to the peripheral by slot. At most 60.
+
+      Omit it to leave the slot model off: the static effect then reads
+      "led-colors" by LED chain index, as before.
+
+  no-key-slots:
+    type: array
+    required: false
+    description: |
+      One slot for each LED of this half that is not under a key (a
+      KP_RGB_NO_KEY "mapping" entry), in the order those entries appear in
+      "mapping". The slots of the other half's no-key LEDs are left out; a slot
+      that no local LED paints is a slot that belongs to the peer.
+

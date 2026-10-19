@@ -2,10 +2,17 @@
 # SPDX-License-Identifier: MIT
 
 description: |
-  Static per-LED colour map: each LED is painted with a colour from the
-  `led-colors` array, indexed by LED chain index. A superset of QMK's
-  ALPHAS_MODS (just assign different colours to alpha vs modifier keys) and any
-  other fixed per-key art.
+  Static per-LED colour map: each LED is painted with a fixed colour. A superset
+  of QMK's ALPHAS_MODS (just assign different colours to alpha vs modifier keys)
+  and any other fixed per-key art.
+
+  The colours come from one of two lists:
+
+    - `slot-colors`, indexed by colour slot (see "slot-count" and "no-key-slots"
+      in keypaw,rgb-matrix). The same list serves both halves of a split
+      keyboard, and with `layer-id` the map can be edited at run time.
+    - `led-colors`, indexed by LED chain index. Used only when `slot-colors` is
+      absent; the list is specific to one half.
 compatible: "keypaw,rgb-matrix-static"
 include: [zero_param.yaml, "keypaw,rgb-matrix-effect-common.yaml"]
 
@@ -17,4 +24,25 @@ properties:
     description: |
       List of 24-bit RGB values, one per LED, indexed by the LED's position in
       the strip chain (0 = first LED). LEDs beyond the list length are left off.
-      The list length must not exceed the number of LEDs.
+      The list length must not exceed the number of LEDs. Ignored when
+      `slot-colors` is present.
+
+  slot-colors:
+    type: array
+    required: false
+    description: |
+      List of 24-bit RGB values, one per colour slot (0 = the first slot).
+      Slots beyond the list length are off, and the list must not be longer than
+      the "slot-count" of the keypaw,rgb-matrix node, which must be set. Each LED
+      is painted with the colour of its own slot, and an LED whose slot is not in
+      the list stays off. These are also the defaults an edited map returns to.
+
+  layer-id:
+    type: int
+    required: false
+    description: |
+      Makes this map editable at run time: the id of the keymap layer the map
+      belongs to, from 0 to 14. It is the stable layer id (`Layer.id` in the ZMK
+      Studio protocol), not the position in the layer list, so the map follows its
+      layer when the layers are reordered. Needs `slot-colors`. Two maps must not
+      declare the same id.

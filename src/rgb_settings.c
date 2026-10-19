@@ -14,6 +14,7 @@
 #include <zmk/rgb_matrix.h>
 #include <zmk/rgb_persist.h>
 
+#include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -24,6 +25,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define KP_RGB_PERSIST_KEY KP_RGB_PERSIST_SUBTREE "/state"
 #define KP_RGB_PERSIST_EFFECT_PREFIX "state/effects/"
 #define KP_RGB_PERSIST_EFFECT_PATH KP_RGB_PERSIST_SUBTREE "/state/effects/"
+/* The editable colour maps live under "keypaw/rgb_matrix/map/<layer id>"; see
+ * rgb_maps.c. */
+#define KP_RGB_PERSIST_MAP_PREFIX "map/"
 
 static const char *kp_rgb_selected_id(void) {
   const struct device *fx = kp_rgb_controller.state.active_fx;
@@ -99,6 +103,12 @@ static int kp_rgb_find_id(const char *id) {
 
 static int kp_rgb_load_cb(const char *name, size_t len,
                           settings_read_cb read_cb, void *cb_arg) {
+  if (strncmp(name, KP_RGB_PERSIST_MAP_PREFIX,
+              sizeof(KP_RGB_PERSIST_MAP_PREFIX) - 1) == 0) {
+    return kp_rgb_maps_load(name + sizeof(KP_RGB_PERSIST_MAP_PREFIX) - 1, len,
+                            read_cb, cb_arg);
+  }
+
   if (strncmp(name, KP_RGB_PERSIST_EFFECT_PREFIX,
               sizeof(KP_RGB_PERSIST_EFFECT_PREFIX) - 1) == 0) {
     const char *id = name + sizeof(KP_RGB_PERSIST_EFFECT_PREFIX) - 1;
@@ -204,6 +214,8 @@ static void kp_rgb_reset_work_handler(struct k_work *work) {
       kp_rgb_reset_delete(path);
     }
   }
+  /* The editable colour maps go back to the devicetree colours too. */
+  (void)kp_rgb_maps_settings_reset();
   kp_rgb_restore_defaults();
 }
 
@@ -215,6 +227,7 @@ void kp_rgb_reset_state(void) {
 #if IS_ENABLED(CONFIG_SETTINGS)
   k_work_submit_to_queue(kp_rgb_work_q(), &kp_rgb_reset_work);
 #else
+  kp_rgb_maps_restore_all_defaults();
   kp_rgb_restore_defaults();
 #endif
 }

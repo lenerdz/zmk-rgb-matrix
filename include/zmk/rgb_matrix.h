@@ -36,6 +36,11 @@
 #else
 #define KP_LED_COUNT 0
 #endif
+/* Size of the colour slot space (`slot-count`), 0 when the node declares none.
+ * See kp_rgb_slot_count(). */
+#define KP_RGB_SLOT_COUNT DT_PROP_OR(KP_RGB_NODE, slot_count, 0)
+#else
+#define KP_RGB_SLOT_COUNT 0
 #endif
 
 /* -------------------------------------------------------------------------
@@ -81,6 +86,20 @@ size_t kp_rgb_led_for_position(uint32_t position);
 /* An LED's centre in this half's normalised layout units -- the same geometry
  * the frame publishes as `coords` -- or NULL when `led` is out of range. */
 const struct kp_rgb_coord *kp_rgb_led_coord(size_t led);
+
+/* Colour slots. A slot is a position in a colour list that means the same thing
+ * on both halves of a split keyboard: the slot of an LED under a key is that
+ * key's position, and an LED that is not under a key takes the next entry of the
+ * node's `no-key-slots`. A map of colours indexed by slot is therefore valid on
+ * either half, and a slot that no local LED paints belongs to the other half.
+ * The effects that take their colours by slot (static) use these. */
+
+/* The size of the slot space: 0 when the matrix node declares no `slot-count`. */
+size_t kp_rgb_slot_count(void);
+/* The local LED a slot paints, or SIZE_MAX when no LED of this half does. */
+size_t kp_rgb_led_for_slot(size_t slot);
+/* The slot a local LED takes its colour from, or SIZE_MAX when it has none. */
+size_t kp_rgb_slot_for_led(size_t led);
 
 /* Layout units use 100 for a standard key's width and height. Do not retain
  * frame pointers or their arrays after the callback. */

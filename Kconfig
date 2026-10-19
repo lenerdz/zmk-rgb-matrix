@@ -211,3 +211,21 @@ config KEYPAW_RGB_SPLIT_SYNC_CLOCK_MS
       next period.
 
 endif # KEYPAW_RGB_SPLIT_SYNC
+
+config KEYPAW_RGB_MAPS_STUDIO
+    bool "Edit the colour maps from ZMK Studio"
+    default y
+    depends on KEYPAW_BEHAVIOR_RGB_MATRIX
+    depends on ZMK_STUDIO_RPC
+    help
+      Adds the requests of the zmk-studio-messages fork (lenerdz/zmk-studio-messages)
+      that read, edit, save, discard and restore the colour maps: the `static`
+      effect instances that declare `layer-id`. Every request needs the keyboard
+      to be unlocked, like the keymap ones. Also registers the maps with ZMK
+      Studio's "restore stock settings".
+
+      Needs the protocol of that fork: the stock zmk-studio-messages has no such
+      requests, so building against it fails. Without ZMK Studio on the build
+      (the peripheral half, or ZMK_STUDIO off) this option is off, and the maps
+      can still be set in devicetree and edited by whatever else calls the C API
+      of rgb_maps.h.

@@ -23,6 +23,7 @@
 
 #include <zmk/events/activity_state_changed.h>
 
+#include "rgb_map_codec.h"
 #include "rgb_matrix_internal.h"
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
@@ -56,9 +57,65 @@ static uint16_t kp_rgb_board_length;
 static uint16_t kp_rgb_board_height;
 static size_t kp_key_to_led[KP_NKEYS];
 
+/* Colour slots (see zmk/rgb_matrix.h). The slot of an LED under a key is that
+ * key's position; the LEDs that are not under a key take, in `mapping` order,
+ * the entries of `no-key-slots`. 0xFF marks "none" in both tables. */
+#define KP_SLOT_NONE 0xFFu
+#define KP_NO_KEY_SLOTS_LEN DT_PROP_LEN_OR(KP_RGB_NODE, no_key_slots, 0)
+
+BUILD_ASSERT(KP_RGB_SLOT_COUNT <= KP_RGB_SLOT_MAX,
+             "keypaw,rgb-matrix: slot-count is limited to KP_RGB_SLOT_MAX (60)");
+BUILD_ASSERT(KP_RGB_SLOT_COUNT == 0 || KP_RGB_SLOT_COUNT >= KP_NKEYS,
+             "keypaw,rgb-matrix: slot-count must cover every key position");
+BUILD_ASSERT(KP_LED_COUNT < KP_SLOT_NONE, "too many LEDs for the slot tables");
+
+#define KP_NO_KEY_SLOT_ASSERT(node_id, prop, idx)                              \
+  BUILD_ASSERT(DT_PROP_BY_IDX(node_id, prop, idx) >= KP_NKEYS &&               \
+                   DT_PROP_BY_IDX(node_id, prop, idx) < KP_RGB_SLOT_COUNT,     \
+               "keypaw,rgb-matrix: a no-key-slots entry must lie between "     \
+               "the key positions and slot-count");
+COND_CODE_1(DT_NODE_HAS_PROP(KP_RGB_NODE, no_key_slots),
+            (DT_FOREACH_PROP_ELEM(KP_RGB_NODE, no_key_slots,
+                                  KP_NO_KEY_SLOT_ASSERT)),
+            ())
+
+static const uint8_t kp_no_key_slots[MAX(1, KP_NO_KEY_SLOTS_LEN)] =
+    COND_CODE_1(DT_NODE_HAS_PROP(KP_RGB_NODE, no_key_slots),
+                (DT_PROP(KP_RGB_NODE, no_key_slots)), ({0}));
+static uint8_t kp_led_slot[MAX(1, KP_LED_COUNT)];
+static uint8_t kp_slot_led[MAX(1, KP_RGB_SLOT_COUNT)];
+
+static void kp_resolve_slots(void) {
+  size_t no_key = 0;
+
+  memset(kp_led_slot, KP_SLOT_NONE, sizeof(kp_led_slot));
+  memset(kp_slot_led, KP_SLOT_NONE, sizeof(kp_slot_led));
+  for (size_t i = 0; i < KP_LED_COUNT; i++) {
+    size_t slot = SIZE_MAX;
+
+    if (kp_map[i] & KP_RGB_NO_KEY_XY_FLAG) {
+      if (no_key < KP_NO_KEY_SLOTS_LEN) {
+        slot = kp_no_key_slots[no_key];
+      }
+      no_key++;
+    } else if (kp_map[i] < KP_NKEYS) {
+      slot = kp_map[i];
+    }
+    if (slot < KP_RGB_SLOT_COUNT) {
+      kp_led_slot[i] = (uint8_t)slot;
+      kp_slot_led[slot] = (uint8_t)i;
+    }
+  }
+  if (KP_RGB_SLOT_COUNT > 0 && no_key != KP_NO_KEY_SLOTS_LEN) {
+    LOG_WRN("no-key-slots lists %u slots for %u LEDs that are not under a key",
+            (uint32_t)KP_NO_KEY_SLOTS_LEN, (uint32_t)no_key);
+  }
+}
+
 static void kp_resolve_layout(const struct zmk_physical_layout *layout) {
   uint16_t min_x = UINT16_MAX, min_y = UINT16_MAX, max_x = 0, max_y = 0;
   memset(kp_key_to_led, 0xFF, sizeof(kp_key_to_led));
+  kp_resolve_slots();
   for (size_t i = 0; i < KP_LED_COUNT; i++) {
     uint32_t k = kp_map[i];
     uint32_t x, y;
@@ -97,6 +154,20 @@ size_t kp_rgb_led_for_position(uint32_t position) {
 
 const struct kp_rgb_coord *kp_rgb_led_coord(size_t led) {
   return led < KP_LED_COUNT ? &kp_led_coords[led] : NULL;
+}
+
+size_t kp_rgb_slot_count(void) { return KP_RGB_SLOT_COUNT; }
+
+size_t kp_rgb_led_for_slot(size_t slot) {
+  return (slot < KP_RGB_SLOT_COUNT && kp_slot_led[slot] != KP_SLOT_NONE)
+             ? kp_slot_led[slot]
+             : SIZE_MAX;
+}
+
+size_t kp_rgb_slot_for_led(size_t led) {
+  return (led < KP_LED_COUNT && kp_led_slot[led] != KP_SLOT_NONE)
+             ? kp_led_slot[led]
+             : SIZE_MAX;
 }
 
 static const struct device *const strip =
