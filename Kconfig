@@ -225,7 +225,13 @@ config KEYPAW_RGB_MAPS_STUDIO
       Studio's "restore stock settings".
 
       Needs the protocol of that fork: the stock zmk-studio-messages has no such
-      requests, so building against it fails. Without ZMK Studio on the build
-      (the peripheral half, or ZMK_STUDIO off) this option is off, and the maps
-      can still be set in devicetree and edited by whatever else calls the C API
-      of rgb_maps.h.
+      requests, so building against it fails.
+
+      Also needs CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=256 or more on the central half:
+      ZMK Studio drops the bytes that do not fit its receive buffer (30 bytes by
+      default), and a request that edits 16 colours is 158 bytes once framed. The
+      build fails when the buffer is smaller.
+
+      Without ZMK Studio on the build (the peripheral half, or ZMK_STUDIO off)
+      this option is off, and the maps can still be set in devicetree and edited
+      by whatever else calls the C API of rgb_maps.h.

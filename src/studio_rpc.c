@@ -40,6 +40,16 @@ BUILD_ASSERT(KP_RGB_MAP_COUNT <= sizeof(((zmk_keymap_LedInfo *)0)->layer_ids) /
              "more colour maps than the LedInfo of the protocol can list: "
              "raise layer_ids max_count in zmk-studio-messages");
 
+/* ZMK Studio drops the bytes that do not fit its receive buffer, which holds 30
+ * bytes unless the config says otherwise. A set_led_colors request with the 16
+ * entries a client may send is 158 bytes once framed, and up to about 210 when
+ * many of its bytes need an escape, so the request would arrive truncated and
+ * the edit would be lost. Put CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=256 in the config
+ * of the central half. */
+BUILD_ASSERT(CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE >= 256,
+             "ZMK Studio would drop the bytes of a set_led_colors request: set "
+             "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=256 (or more) on the central half");
+
 static bool layer_id_valid(uint32_t layer_id) { return layer_id <= UINT8_MAX; }
 
 static zmk_studio_Response get_led_info(const zmk_studio_Request *req) {
