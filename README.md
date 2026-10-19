@@ -1,5 +1,7 @@
 # ZMK RGB Matrix
 
+[English](./README.md) | [Português (Brasil)](./README.pt-BR.md)
+
 [![GitHub Actions Workflow
 Status](https://img.shields.io/github/actions/workflow/status/gudzpoz/zmk-rgb-matrix/previews.yml?label=previews)](https://gudzpoz.github.io/zmk-rgb-matrix/)
 [![GitHub Actions Workflow
