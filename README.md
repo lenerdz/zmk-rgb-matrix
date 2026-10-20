@@ -576,6 +576,9 @@ the time of setting 4 after that and then turns the screen off, if the mode
 allows it. Any activity turns it on again. A change made from ZMK Studio turns
 the screen on and keeps it on for at least 10 seconds, so the change can be seen.
 The mode "never" does nothing at all, which is the same as ZMK's option being off.
+ZMK counts the activity of each half on its own: the left (central) half also counts
+the keys of the right half, but the right half only counts its own keys, so its
+screen goes off while you type only on the left.
 
 **Flash.** Each half keeps one settings record, `keypaw/display/<id>` (an int32),
 for every setting that differs from its default; a setting at its default has no

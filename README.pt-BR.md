@@ -585,7 +585,9 @@ módulo espera, depois disso, o resto do tempo da configuração 4 e então apag
 tela, se o modo permitir. Qualquer atividade a acende de novo. Uma mudança feita
 no ZMK Studio acende a tela e a mantém acesa por pelo menos 10 segundos, para que
 a mudança possa ser vista. O modo "nunca" não faz nada, o que equivale à opção do
-ZMK desligada.
+ZMK desligada. O ZMK conta a atividade de cada metade por conta própria: a metade
+esquerda (central) conta também as teclas da direita, mas a metade direita conta só
+as suas, então a tela dela apaga enquanto você digita só na esquerda.
 
 **Flash.** Cada metade guarda um registro de configurações, `keypaw/display/<id>`
 (um int32), para cada configuração que difere do padrão; uma configuração no
