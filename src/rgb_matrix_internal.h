@@ -80,6 +80,13 @@ void kp_rgb_matrix_unlock(void);
 /* Every engine work item runs here, including behavior invocation chains. */
 struct k_work_q *kp_rgb_work_q(void);
 
+/* Position carried by the commands that the central pushes to a peripheral to
+ * keep its state in step (rgb_split_sync.c). The position travels as one byte
+ * and a key position is below 255 on any keymap this module is used with, so
+ * the peripheral's handler can tell such a command from a key press and does not
+ * raise zmk_rgb_matrix_changed for it. */
+#define KP_RGB_SYNC_EVENT_POSITION 0xFFu
+
 /* Split-shared animation clock: local uptime plus the peripheral offset, in a
  * wrapping uint32_t. The offset is 0 on the central/standalone half. */
 uint32_t kp_rgb_clock_ms(void);

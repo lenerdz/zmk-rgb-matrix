@@ -64,6 +64,10 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX
   effects/digital_rain.c
 )
 
+# The change event is declared in include/zmk/events/rgb_matrix_changed.h; its
+# implementation stays out of the build when nothing raises it.
+zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT events/rgb_matrix_changed.c)
+
 # Trigger table: central-only, because a trigger's condition may read keymap
 # state, which does not exist on a peripheral.
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_TRIGGERS rgb_triggers.c)

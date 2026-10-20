@@ -212,11 +212,13 @@ static bool kp_rgb_sync_send(uint8_t source, uint32_t cmd, uint32_t arg) {
       .param1 = cmd,
       .param2 = arg,
   };
-  /* The peripheral handler ignores the event, and its position is truncated to a
-   * byte on the wire, so keep it 0. state=true calls the pressed handler. */
+  /* The position is truncated to a byte on the wire. The peripheral handler
+   * reads it only to tell this push from a key press (see
+   * KP_RGB_SYNC_EVENT_POSITION), so the change event is not raised for it.
+   * state=true calls the pressed handler. */
   struct zmk_behavior_binding_event event = {
       .layer = 0,
-      .position = 0,
+      .position = KP_RGB_SYNC_EVENT_POSITION,
       .timestamp = k_uptime_get(),
       .source = source,
   };
@@ -310,6 +312,9 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
       if (fx != NULL) {
         const struct kp_rgb_effect_common_data *data = kp_rgb_effect_data(fx);
         st->color = data->color;
+        /* The brightness is the controller's, and the handler of
+         * RGB_COLOR_HSB_CMD applies the `b` it carries to it. */
+        st->color.b = kp_rgb_controller.brightness;
         /* Zero means "increase" in RGB_SPI_CMD, not an absolute period. */
         st->duration_ms = (uint16_t)MAX(data->duration_ms, 1u);
       }

@@ -141,9 +141,11 @@ static void finish_source(unsigned source) {
 
 static void test_initial_connection_and_off_snapshot(void) {
     reset_test();
-    struct kp_rgb_effect_common_data data = {{123, 45, 67}, 890};
+    struct kp_rgb_effect_common_data data = {{123, 45, 100}, 890};
     const struct device device = {&data, "rgb"};
     set_scene(&device, 3, false);
+    /* The colour command carries the controller's brightness, not the effect's. */
+    kp_rgb_controller.brightness = 67;
 
     kp_rgb_sync_refresh();
     assert(kp_rgb_sync_sources[0].pending && kp_rgb_sync_sources[1].pending);
@@ -193,7 +195,8 @@ static void test_disconnect_reconnect_and_transport_replacement(void) {
     assert(kp_rgb_sync_sources[0].synced_effect == KP_RGB_SYNC_NO_EFFECT);
 
     kp_rgb_matrix_lock();
-    data.color = (struct kp_rgb_hsb){75, 80, 90};
+    data.color = (struct kp_rgb_hsb){75, 80, 100};
+    kp_rgb_controller.brightness = 90;
     data.duration_ms = 1200;
     kp_rgb_matrix_unlock();
     set_scene(&device, 0, false);

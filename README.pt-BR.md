@@ -338,6 +338,61 @@ mantém acesa e aplica `idle-brightness` enquanto estiver ociosa.
 > RGB no devicetree as coisas podem sair de sincronia, e é quando você pode
 > querer executar manualmente este comando `&kprgb RGB_RESET`.
 
+### Evento de mudança
+
+`CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT` (ligado por padrão) dispara o evento
+`zmk_rgb_matrix_changed` (`zmk/events/rgb_matrix_changed.h`) depois que um comando
+`&kprgb` ou `&fx_*` mudou algo que o usuário consegue ver. Ele permite que outro
+código, como uma tela de status, mostre o que um toque de tecla fez.
+
+| `kind` | Disparado quando |
+|---|---|
+| `ZMK_RGB_MATRIX_CHANGE_EFFECT` | outro efeito passou a ser o ativo |
+| `ZMK_RGB_MATRIX_CHANGE_POWER` | o usuário ligou ou desligou as luzes |
+| `ZMK_RGB_MATRIX_CHANGE_BRIGHTNESS` | o brilho subiu ou desceu |
+| `ZMK_RGB_MATRIX_CHANGE_HUE` | o matiz subiu ou desceu |
+| `ZMK_RGB_MATRIX_CHANGE_SATURATION` | a saturação subiu ou desceu |
+| `ZMK_RGB_MATRIX_CHANGE_PERIOD` | o período da animação do efeito ativo mudou |
+| `ZMK_RGB_MATRIX_CHANGE_RESET` | `RGB_RESET` devolveu o estado aos valores padrão |
+
+O evento carrega o estado depois da mudança: `on` (a intenção de ligado/desligado
+do usuário), `effect` (posição entre os filhos de `&kprgb`, começando em 0),
+`effect_count`, `effect_name` (o nome do nó sem o `fx_` inicial; armazenamento
+estático, pode ser `NULL`), `hue` (0 a 359), `saturation` e `brightness` (0 a 100)
+e `period_ms` (um período menor é uma animação mais rápida).
+
+- Um comando que não mudou nada (o mesmo efeito de novo, um brilho que já está no
+  limite) não dispara nada. Um comando muda uma coisa só, então o `kind` é a
+  primeira linha da tabela que diferiu.
+- Os comandos são globais, então um teclado split dispara o evento nas **duas**
+  metades. É isso que permite que a tela de uma metade periférica reaja a uma tecla
+  apertada na outra metade.
+- Ele não é disparado na inicialização, nem para o estado que a central envia à
+  periférica quando ela conecta (esses comandos carregam `KP_RGB_SYNC_EVENT_POSITION`
+  como posição de tecla), nem para as edições dos mapas de cor do ZMK Studio: só
+  para o que o usuário pediu.
+- Os ouvintes (listeners) rodam na thread que aplicou o comando: mantenha-os
+  curtos e não chame o módulo de volta a partir deles.
+
+```c
+#include <zmk/event_manager.h>
+#include <zmk/events/rgb_matrix_changed.h>
+
+static int on_rgb_changed(const zmk_event_t *eh) {
+  const struct zmk_rgb_matrix_changed *ev = as_zmk_rgb_matrix_changed(eh);
+  if (ev != NULL && ev->kind == ZMK_RGB_MATRIX_CHANGE_EFFECT) {
+    /* ev->effect + 1 of ev->effect_count, named ev->effect_name */
+  }
+  return ZMK_EV_EVENT_BUBBLE;
+}
+
+ZMK_LISTENER(my_rgb_listener, on_rgb_changed);
+ZMK_SUBSCRIPTION(my_rgb_listener, zmk_rgb_matrix_changed);
+```
+
+O fork [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) o usa no widget
+`NICE_OLED_WIDGET_LED_TOAST`.
+
 ## Slots de cor e mapas de cores editáveis
 
 O efeito `static` pode guardar as suas cores por *slot* em vez de por LED. Um mapa

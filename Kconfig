@@ -139,6 +139,22 @@ config KEYPAW_BEHAVIOR_RGB_MATRIX
     depends on DT_HAS_KEYPAW_BEHAVIOR_RGB_MATRIX_ENABLED
     select KEYPAW_RGB_MATRIX
 
+config KEYPAW_RGB_MATRIX_CHANGE_EVENT
+    bool "Raise zmk_rgb_matrix_changed when the user changes the lights"
+    default y
+    depends on KEYPAW_BEHAVIOR_RGB_MATRIX
+    help
+      Raises the zmk_rgb_matrix_changed event (zmk/events/rgb_matrix_changed.h)
+      on the half that applies a &kprgb or &fx_* command that changed the active
+      effect, the on/off intent, the brightness, the hue, the saturation or the
+      speed, or that reset the state. A split keyboard raises it on both halves
+      because the commands are global, so a peripheral's screen can show what
+      changed (the zmk-nice-oled toast widget does).
+
+      It is not raised for the state pushed to a peripheral when it connects, for
+      ZMK Studio colour-map edits, or at boot. Costs one small event per command
+      and nothing when no listener subscribes.
+
 config KEYPAW_RGB_TRIGGERS
     bool "RGB matrix trigger table"
     default y

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define DT_DRV_COMPAT keypaw_behavior_rgb_matrix
 
@@ -15,6 +16,7 @@
 #include <zephyr/logging/log.h>
 
 #include <dt-bindings/keypaw/rgb_matrix.h>
+#include <zmk/events/rgb_matrix_changed.h>
 #include <zmk/keymap.h>
 #include <zmk/rgb_matrix.h>
 
@@ -561,6 +563,95 @@ static int on_keymap_binding_convert_central_state_dependent_params(
   return 0;
 }
 
+/* The brightness is the controller's own, not the effect's. It travels in the
+ * `b` of RGB_COLOR_HSB_CMD, which is how the central hands a relative brightness
+ * press (RGB_BRI/RGB_BRD, resolved to an absolute colour by the convert hook) to
+ * every half, and how the split sync pushes it. kp_rgb_set_hsb() leaves it
+ * alone, so apply it here. */
+static int kp_rgb_set_brightness(uint8_t brightness) {
+  if (k_is_in_isr()) {
+    return -EWOULDBLOCK;
+  }
+  if (brightness > KP_RGB_BRT_MAX) {
+    return -EINVAL;
+  }
+  kp_rgb_matrix_lock();
+  if (kp_rgb_controller.brightness != brightness) {
+    kp_rgb_controller.brightness = brightness;
+    zmk_rgb_matrix_flush();
+  }
+  kp_rgb_matrix_unlock();
+  return 0;
+}
+
+#if IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT)
+
+/* What a user command can change, copied under the matrix lock. */
+struct kp_rgb_snapshot {
+  bool on;
+  uint16_t effect;
+  struct kp_rgb_hsb color; /* .b is the controller's brightness */
+  uint32_t period_ms;
+};
+
+static void kp_rgb_snapshot_take(struct kp_rgb_snapshot *snap) {
+  kp_rgb_matrix_lock();
+  snap->on = kp_rgb_controller.state.user_on;
+  snap->effect = (uint16_t)kp_rgb_controller.effect_index;
+  snap->color = kp_active_hsb();
+  snap->period_ms = kp_active_duration();
+  kp_rgb_matrix_unlock();
+}
+
+/* Called with the matrix lock released: listeners run in this thread. */
+static void kp_rgb_raise_change(enum zmk_rgb_matrix_change_kind kind,
+                                const struct kp_rgb_snapshot *now) {
+  const struct device *fx = kp_rgb_effect_at(now->effect);
+  const char *name = fx != NULL ? fx->name : NULL;
+  if (name != NULL && strncmp(name, "fx_", 3) == 0) {
+    name += 3;
+  }
+  raise_zmk_rgb_matrix_changed((struct zmk_rgb_matrix_changed){
+      .kind = kind,
+      .on = now->on,
+      .effect = (uint8_t)MIN(now->effect, UINT8_MAX),
+      .effect_count = (uint8_t)MIN(kp_rgb_effect_count(), UINT8_MAX),
+      .effect_name = name,
+      .hue = now->color.h,
+      .saturation = now->color.s,
+      .brightness = now->color.b,
+      .period_ms = (uint16_t)MIN(now->period_ms, UINT16_MAX),
+  });
+}
+
+/* Announces what a command that succeeded changed, judged by comparing the state
+ * with the snapshot taken before it ran. A command that changed nothing (the
+ * same effect again, a brightness already at its limit) announces nothing. */
+static void kp_rgb_notify_change(const struct kp_rgb_snapshot *before) {
+  struct kp_rgb_snapshot after;
+  kp_rgb_snapshot_take(&after);
+
+  enum zmk_rgb_matrix_change_kind kind;
+  if (after.effect != before->effect) {
+    kind = ZMK_RGB_MATRIX_CHANGE_EFFECT;
+  } else if (after.on != before->on) {
+    kind = ZMK_RGB_MATRIX_CHANGE_POWER;
+  } else if (after.color.b != before->color.b) {
+    kind = ZMK_RGB_MATRIX_CHANGE_BRIGHTNESS;
+  } else if (after.color.h != before->color.h) {
+    kind = ZMK_RGB_MATRIX_CHANGE_HUE;
+  } else if (after.color.s != before->color.s) {
+    kind = ZMK_RGB_MATRIX_CHANGE_SATURATION;
+  } else if (after.period_ms != before->period_ms) {
+    kind = ZMK_RGB_MATRIX_CHANGE_PERIOD;
+  } else {
+    return;
+  }
+  kp_rgb_raise_change(kind, &after);
+}
+
+#endif /* IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT) */
+
 static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
   ARG_UNUSED(event);
@@ -570,6 +661,15 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
      * of the saved state, so no kp_rgb_save_state(). */
     return kp_rgb_map_command(binding->param1, binding->param2);
   }
+#if IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT)
+  /* The push that keeps a peripheral in step carries KP_RGB_SYNC_EVENT_POSITION;
+   * only what a user asked for is worth announcing. */
+  struct kp_rgb_snapshot before = {0};
+  const bool announce = event.position != KP_RGB_SYNC_EVENT_POSITION;
+  if (announce) {
+    kp_rgb_snapshot_take(&before);
+  }
+#endif
   switch (binding->param1) {
   case RGB_TOG_CMD:
     ret = zmk_rgb_matrix_toggle();
@@ -614,14 +714,25 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
   case RGB_EFR_CMD:
     ret = zmk_rgb_matrix_cycle_effect(-1);
     break;
-  case RGB_COLOR_HSB_CMD:
-    ret = kp_rgb_set_hsb(
-        (struct kp_rgb_hsb){.h = (binding->param2 >> 16) & 0xFFFF,
-                            .s = (binding->param2 >> 8) & 0xFF,
-                            .b = binding->param2 & 0xFF});
+  case RGB_COLOR_HSB_CMD: {
+    const struct kp_rgb_hsb color = {.h = (binding->param2 >> 16) & 0xFFFF,
+                                     .s = (binding->param2 >> 8) & 0xFF,
+                                     .b = binding->param2 & 0xFF};
+    ret = kp_rgb_set_hsb(color);
+    if (ret >= 0) {
+      ret = kp_rgb_set_brightness(color.b);
+    }
     break;
+  }
   case RGB_RESET_CMD:
     kp_rgb_reset_state();
+#if IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT)
+    if (announce) {
+      struct kp_rgb_snapshot after;
+      kp_rgb_snapshot_take(&after);
+      kp_rgb_raise_change(ZMK_RGB_MATRIX_CHANGE_RESET, &after);
+    }
+#endif
     return 0;
   case RGB_OVL_STATE_CMD:
     kp_rgb_overlay_set_word(RGB_OVL_STATE_WORD(binding->param2),
@@ -640,6 +751,11 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     return ret;
   }
   kp_rgb_save_state();
+#if IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT)
+  if (announce) {
+    kp_rgb_notify_change(&before);
+  }
+#endif
   return ret;
 }
 

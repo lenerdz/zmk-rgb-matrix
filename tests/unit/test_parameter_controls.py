@@ -11,6 +11,12 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src/behavior_rgb_matrix.c"
 
+# The change event is compiled out here; test_change_event.py covers it.
+PRELUDE = r'''
+#define IS_ENABLED(option) option
+#define CONFIG_KEYPAW_RGB_MATRIX_CHANGE_EVENT 0
+'''
+
 MOCKS = r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -23,7 +29,7 @@ enum {RGB_TOG_CMD, RGB_OFF_CMD, RGB_ON_CMD, RGB_BRI_CMD, RGB_BRD_CMD,
       RGB_HUI_CMD, RGB_HUD_CMD, RGB_SAI_CMD, RGB_SAD_CMD, RGB_COLOR_HSB_CMD,
       RGB_EFR_CMD, RGB_EFF_CMD, RGB_EFS_CMD, RGB_SPI_CMD, RGB_SPD_CMD};
 struct zmk_behavior_binding { uint32_t param1, param2; };
-struct zmk_behavior_binding_event { int unused; };
+struct zmk_behavior_binding_event { int unused; uint32_t position; };
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))
 #define KP_RGB_HUE_MAX 360
 #define KP_RGB_SAT_MAX 100
@@ -37,7 +43,7 @@ struct zmk_behavior_binding_event { int unused; };
 struct kp_rgb_hsb { uint16_t h; uint8_t s, b; };
 struct kp_rgb_effect_common_data { struct kp_rgb_hsb color; uint16_t duration_ms; };
 struct kp_rgb_effect_defaults { struct kp_rgb_hsb color; uint32_t duration_ms; };
-struct device { bool ready; struct kp_rgb_effect_common_data data; };
+struct device { bool ready; struct kp_rgb_effect_common_data data; const char *name; };
 static struct device effects[3] = {{true}, {true}, {false}};
 static struct device embedded_fx = {.ready=true};
 static const struct device *const selectable[] = {&effects[0], NULL, &effects[2]};
@@ -171,6 +177,17 @@ int main(void) {
     assert(zmk_rgb_matrix_set_color(&embedded_fx,&c)==-ENODEV);
     assert(zmk_rgb_matrix_set_period(&embedded_fx,100)==-ENODEV);
     assert(flushes==n+2 && embedded_fx.data.duration_ms==2345);
+    /* The brightness that RGB_COLOR_HSB_CMD carries belongs to the controller. */
+    kp_rgb_controller.brightness=40; n=flushes; locks=lock_calls;
+    assert(kp_rgb_set_brightness(70)==0 && kp_rgb_controller.brightness==70);
+    assert(flushes==n+1 && lock_calls==locks+1);
+    assert(kp_rgb_set_brightness(70)==0 && flushes==n+1);
+    assert(kp_rgb_set_brightness(0)==0 && kp_rgb_controller.brightness==0);
+    assert(kp_rgb_set_brightness(100)==0 && kp_rgb_controller.brightness==100);
+    assert(kp_rgb_set_brightness(101)==-EINVAL && kp_rgb_controller.brightness==100);
+    isr=true; locks=lock_calls;
+    assert(kp_rgb_set_brightness(10)==-EWOULDBLOCK && lock_calls==locks);
+    isr=false;
     assert(!locked);
 }
 '''
@@ -186,7 +203,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "parameter_controls.c"
         binary = Path(tmp) / "parameter_controls"
-        source.write_text(MOCKS + production + TESTS)
+        source.write_text(PRELUDE + MOCKS + production + TESTS)
         subprocess.run(shlex.split(os.environ.get("CC", "cc")) +
                        ["-std=c11", "-Wall", "-Wextra", "-Werror",
                         "-Wno-missing-field-initializers", str(source), "-o", str(binary)],
