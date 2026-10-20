@@ -630,9 +630,13 @@ sem esses handlers responde `RPC_NOT_FOUND` a elas, e é assim que um cliente
 descobre que o recurso não existe. O "Restore Stock Settings" do ZMK Studio também
 devolve as configurações ao padrão.
 
-**Situação.** Ainda não foi experimentado em um teclado real: o contraste, a tela
-apagando em cada modo, a cópia para a metade periférica e as três requisições.
-Compila no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk).
+**Situação.** A lógica das configurações (faixas, registros na flash, o contraste de
+cada metade, quando a tela apaga, o comando para a periférica) tem testes no
+computador com um relógio falso (`tests/unit/test_display_settings.py`); o driver do
+display, as filas de trabalho e o backend de settings são substitutos ali. Compila no
+CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi
+experimentado em um teclado real: o contraste, a tela apagando em cada modo, a cópia
+para a metade periférica e as três requisições.
 
 ## Componentes embutidos
 

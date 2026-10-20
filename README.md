@@ -620,9 +620,13 @@ answers them with `RPC_NOT_FOUND`, which is how a client can tell that the
 feature is missing. ZMK Studio's "Restore Stock Settings" also puts the settings
 back to their defaults.
 
-**Status.** It has not been tried on a real keyboard yet: the contrast, the screen
-off in each mode, the copy to the peripheral half and the three requests. It
-builds in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk).
+**Status.** The logic of the settings (ranges, flash records, the contrast of each
+half, when the screen goes off, the command for the peripheral) has host tests with
+a fake clock (`tests/unit/test_display_settings.py`); the display driver, the work
+queues and the settings backend are stand-ins there. It builds in the CI of
+[lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried on
+a real keyboard yet: the contrast, the screen off in each mode, the copy to the
+peripheral half and the three requests.
 
 ## Built-in components
 
