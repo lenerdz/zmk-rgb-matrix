@@ -491,7 +491,7 @@ unlocked.
 
 | Request | Id | Answer | What it does |
 |---|---|---|---|
-| `get_led_info` | 100 | `LedInfo`: `slot_count`, `layer_ids` (up to 8) and `unsaved_changes` | tells what can be edited |
+| `get_led_info` | 100 | `LedInfo`: `slot_count`, `layer_ids` (up to 15) and `unsaved_changes` | tells what can be edited |
 | `get_led_map` | 101 | `LedMap`: `layer_id` and `colors` (the 54 live colours, `0xRRGGBB`) | reads one map |
 | `set_led_colors` | 102 | `OK`, `INVALID_LAYER`, `INVALID_SLOT` or `BUSY` (any other failure) | edits up to 16 slots of one map, all or nothing |
 | `save_led_changes` | 103 | the same answer as the keymap's save: ok, or `NOT_SUPPORTED`, `NO_SPACE` or `GENERIC` | writes the changed maps to flash |
@@ -527,7 +527,7 @@ The stock protocol has none of these requests, so building against it fails.
 **Limits.** `slot-count` is at most 60. The 54 colours of `LedMap` are fixed in
 the protocol: with more slots, raise `colors max_count` in `keymap.options.in` of
 the fork (the build checks it). Layer ids go from 0 to 14, `get_led_info` lists up
-to 8 maps and `set_led_colors` carries up to 16 slots.
+to 15 maps and `set_led_colors` carries up to 16 slots.
 
 **Receive buffer.** The receive buffer of ZMK Studio
 (`CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE`) holds 30 bytes by default and drops the
@@ -541,6 +541,85 @@ build fails when the buffer is smaller.
 [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk) and has not been tried
 on a real keyboard yet: the live edit, the save to flash, the discard and the copy
 to the peripheral half.
+
+## Display (OLED) settings
+
+`CONFIG_KEYPAW_DISPLAY_SETTINGS` (off by default) keeps a short list of numbered
+integer settings for the screens: the contrast of each half, when the screen goes
+off, and the light toast of the [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled)
+fork. Each half applies them at once and keeps them in its own flash, the central
+copies them to the peripheral, and [ZMK Studio](https://zmk.dev/docs/features/studio)
+edits them (see [ZMK Studio requests for the display](#zmk-studio-requests-for-the-display)).
+A widget reads one with `kp_display_setting_get()`
+(`include/zmk/display_settings.h`).
+
+It has nothing to do with the colours, but the command that reaches the peripheral
+travels in `&kprgb` and the copy is made by the same split sync, so it needs
+`CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX`, and it has to be on in the build of both
+halves. It also needs `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (the build fails
+otherwise), because the module turns the screen off itself.
+
+| Id | Setting | Range | Default | What it does |
+|---|---|---|---|---|
+| 1 | Left screen contrast | 0 to 255 | 128 (`CONFIG_SSD1306_DEFAULT_CONTRAST`) | `display_set_contrast()` of the central half's screen |
+| 2 | Right screen contrast | 0 to 255 | 128 | the same, on the peripheral half |
+| 3 | Screen off | 0 never, 1 only on battery, 2 always | 0 | whether the screen goes off when the keyboard is idle; "only on battery" keeps it on while USB is connected to that half |
+| 4 | Seconds without activity before the screen goes off | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) to 3600 | 60 | counted from the last activity; used when setting 3 is not 0 |
+| 5 | Toast | 0 or 1 | 1 | the light toast of zmk-nice-oled |
+| 6 | Toast duration (ms) | 500 to 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | how long the toast stays on screen |
+
+**Screen off.** ZMK's own option cannot tell USB from battery, so the module turns
+the screen off itself, with `display_blanking_on()`, and back on with
+`display_blanking_off()`, on the display work queue (the one LVGL flushes from).
+ZMK goes idle after `CONFIG_ZMK_IDLE_TIMEOUT`; the module waits for the rest of
+the time of setting 4 after that and then turns the screen off, if the mode
+allows it. Any activity turns it on again. A change made from ZMK Studio turns
+the screen on and keeps it on for at least 10 seconds, so the change can be seen.
+The mode "never" does nothing at all, which is the same as ZMK's option being off.
+
+**Flash.** Each half keeps one settings record, `keypaw/display/<id>` (an int32),
+for every setting that differs from its default; a setting at its default has no
+record. A change is written 3 seconds after the last one
+(`CONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS`, so that dragging a slider writes once)
+and the records win over the defaults at boot; a record that is unknown or out of range is ignored.
+`&kprgb RGB_RESET` does not touch them. ZMK Studio's "Restore Stock Settings"
+deletes them.
+
+**Split keyboards.** The copy to the peripheral is the last phase of the split sync,
+after the colour maps: one `RGB_DISPLAY_SET_CMD` per setting (`param1` holds the
+command in its low 12 bits and the setting id in bits 12 to 15, `param2` is the
+value as an int32), one command at a time, 50 ms apart, when the peripheral
+connects (or restarts) and whenever a setting changes. The peripheral applies the
+value and keeps it in its own flash, so its screen is right at boot, before the
+central connects. Both halves hold the six settings, and each half applies its own
+contrast.
+
+### ZMK Studio requests for the display
+
+`CONFIG_KEYPAW_DISPLAY_SETTINGS_STUDIO` (on by default when ZMK Studio's RPC is on
+the build, so on the central half) adds three requests to the `keymap` subsystem,
+in the same [lenerdz/zmk-studio-messages](https://github.com/lenerdz/zmk-studio-messages)
+fork as the colour ones (see [ZMK Studio requests](#zmk-studio-requests) for how
+to use the fork). Like the keymap requests, all of them need the keyboard to be
+unlocked.
+
+| Request | Id | Answer | What it does |
+|---|---|---|---|
+| `get_display_info` | 106 | `DisplayInfo`: `settings` (up to 16), each with `id`, `value`, `min`, `max` and `default_value` | lists the settings |
+| `set_display_setting` | 107 | `OK`, `INVALID_ID` or `INVALID_VALUE` | sets one setting |
+| `restore_display_defaults` | 108 | `DisplayInfo`, already restored | puts every setting back to its default |
+
+There is no save or discard step, and no notification: a change is applied at
+once and written to flash a few seconds later. A client has to use the `min`, `max` and `default_value` that
+`get_display_info` reports, because they depend on the firmware (the lower limit
+of setting 4 is the idle timeout of the build). A firmware without these handlers
+answers them with `RPC_NOT_FOUND`, which is how a client can tell that the
+feature is missing. ZMK Studio's "Restore Stock Settings" also puts the settings
+back to their defaults.
+
+**Status.** It has not been tried on a real keyboard yet: the contrast, the screen
+off in each mode, the copy to the peripheral half and the three requests. It
+builds in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk).
 
 ## Built-in components
 

@@ -498,7 +498,7 @@ requisições do keymap, todas exigem o teclado desbloqueado.
 
 | Requisição | Id | Resposta | O que faz |
 |---|---|---|---|
-| `get_led_info` | 100 | `LedInfo`: `slot_count`, `layer_ids` (até 8) e `unsaved_changes` | diz o que pode ser editado |
+| `get_led_info` | 100 | `LedInfo`: `slot_count`, `layer_ids` (até 15) e `unsaved_changes` | diz o que pode ser editado |
 | `get_led_map` | 101 | `LedMap`: `layer_id` e `colors` (as 54 cores ao vivo, `0xRRGGBB`) | lê um mapa |
 | `set_led_colors` | 102 | `OK`, `INVALID_LAYER`, `INVALID_SLOT` ou `BUSY` (qualquer outra falha) | edita até 16 slots de um mapa, tudo ou nada |
 | `save_led_changes` | 103 | a mesma resposta do salvamento do keymap: ok, ou `NOT_SUPPORTED`, `NO_SPACE` ou `GENERIC` | grava na flash os mapas alterados |
@@ -535,7 +535,7 @@ ele falha.
 **Limites.** `slot-count` é no máximo 60. As 54 cores do `LedMap` são fixas no
 protocolo: com mais slots, aumente `colors max_count` em `keymap.options.in` do
 fork (a compilação confere). Os ids de camada vão de 0 a 14, `get_led_info` lista
-até 8 mapas e `set_led_colors` leva até 16 slots.
+até 15 mapas e `set_led_colors` leva até 16 slots.
 
 **Buffer de recepção.** O buffer de recepção do ZMK Studio
 (`CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE`) tem 30 bytes por padrão e descarta os bytes
@@ -549,6 +549,88 @@ metade central. A compilação falha quando o buffer é menor.
 [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk) e ainda não foi
 experimentado em um teclado real: a edição ao vivo, o salvamento na flash, o
 descarte e a cópia para a metade periférica.
+
+## Configurações da tela (OLED)
+
+`CONFIG_KEYPAW_DISPLAY_SETTINGS` (desligada por padrão) mantém uma lista curta de
+configurações inteiras numeradas para as telas: o contraste de cada metade,
+quando a tela apaga e o toast leve do fork
+[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled). Cada metade aplica as
+configurações na hora e as guarda na sua própria flash, a central as copia para a
+periférica, e o [ZMK Studio](https://zmk.dev/docs/features/studio) as edita (veja
+[Requisições do ZMK Studio para a tela](#requisições-do-zmk-studio-para-a-tela)).
+Um widget lê uma delas com `kp_display_setting_get()`
+(`include/zmk/display_settings.h`).
+
+Ela não tem relação com as cores, mas o comando que chega à periférica viaja em
+`&kprgb` e a cópia é feita pela mesma sincronização split, então ela precisa de
+`CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX` e precisa estar ligada no build das duas
+metades. Precisa também de `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (a compilação
+falha caso contrário), porque o módulo apaga a tela por conta própria.
+
+| Id | Configuração | Faixa | Padrão | O que faz |
+|---|---|---|---|---|
+| 1 | Contraste da tela esquerda | 0 a 255 | 128 (`CONFIG_SSD1306_DEFAULT_CONTRAST`) | `display_set_contrast()` da tela da metade central |
+| 2 | Contraste da tela direita | 0 a 255 | 128 | o mesmo, na metade periférica |
+| 3 | Apagar a tela | 0 nunca, 1 só na bateria, 2 sempre | 0 | se a tela apaga quando o teclado fica ocioso; "só na bateria" a mantém ligada enquanto o USB está conectado àquela metade |
+| 4 | Segundos sem atividade antes de apagar a tela | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) a 3600 | 60 | contados a partir da última atividade; usada quando a configuração 3 não é 0 |
+| 5 | Toast | 0 ou 1 | 1 | o toast leve do zmk-nice-oled |
+| 6 | Duração do toast (ms) | 500 a 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | por quanto tempo o toast fica na tela |
+
+**Apagar a tela.** A opção própria do ZMK não distingue USB de bateria, então o
+módulo apaga a tela por conta própria, com `display_blanking_on()`, e a acende de
+novo com `display_blanking_off()`, na fila de trabalho do display (a mesma de onde
+o LVGL faz o flush). O ZMK fica ocioso depois de `CONFIG_ZMK_IDLE_TIMEOUT`; o
+módulo espera, depois disso, o resto do tempo da configuração 4 e então apaga a
+tela, se o modo permitir. Qualquer atividade a acende de novo. Uma mudança feita
+no ZMK Studio acende a tela e a mantém acesa por pelo menos 10 segundos, para que
+a mudança possa ser vista. O modo "nunca" não faz nada, o que equivale à opção do
+ZMK desligada.
+
+**Flash.** Cada metade guarda um registro de configurações, `keypaw/display/<id>`
+(um int32), para cada configuração que difere do padrão; uma configuração no
+padrão não tem registro. Uma mudança é gravada 3 segundos depois da última
+(`CONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS`, para que arrastar um controle deslizante
+grave uma vez só) e os registros valem mais que os padrões no boot; um
+registro desconhecido ou fora da faixa é ignorado. `&kprgb RGB_RESET` não mexe
+neles. O "Restore Stock Settings" do ZMK Studio os apaga.
+
+**Teclados split.** A cópia para a periférica é a última fase da sincronização
+split, depois dos mapas de cores: um `RGB_DISPLAY_SET_CMD` por configuração
+(`param1` leva o comando nos 12 bits baixos e o id da configuração nos bits 12 a
+15, `param2` é o valor como int32), um comando por vez, com 50 ms entre eles,
+quando a periférica conecta (ou reinicia) e sempre que uma configuração muda. A
+periférica aplica o valor e o guarda na sua própria flash, então a tela dela já
+está certa no boot, antes de a central conectar. As duas metades guardam as seis
+configurações, e cada metade aplica o seu próprio contraste.
+
+### Requisições do ZMK Studio para a tela
+
+`CONFIG_KEYPAW_DISPLAY_SETTINGS_STUDIO` (ligada por padrão quando o RPC do ZMK
+Studio está no build, ou seja, na metade central) acrescenta três requisições ao
+subsistema `keymap`, no mesmo fork
+[lenerdz/zmk-studio-messages](https://github.com/lenerdz/zmk-studio-messages) das
+requisições de cor (veja [Requisições do ZMK Studio](#requisições-do-zmk-studio)
+para saber como usar o fork). Como as requisições do keymap, todas exigem o
+teclado desbloqueado.
+
+| Requisição | Id | Resposta | O que faz |
+|---|---|---|---|
+| `get_display_info` | 106 | `DisplayInfo`: `settings` (até 16), cada uma com `id`, `value`, `min`, `max` e `default_value` | lista as configurações |
+| `set_display_setting` | 107 | `OK`, `INVALID_ID` ou `INVALID_VALUE` | define uma configuração |
+| `restore_display_defaults` | 108 | `DisplayInfo`, já restaurado | devolve todas as configurações ao padrão |
+
+Não há etapa de salvar nem de descartar, e não há notificação: uma mudança é
+aplicada na hora e gravada na flash alguns segundos depois. O cliente precisa usar os `min`, `max` e
+`default_value` que `get_display_info` informa, porque eles dependem do firmware (o
+limite inferior da configuração 4 é o tempo de ociosidade do build). Um firmware
+sem esses handlers responde `RPC_NOT_FOUND` a elas, e é assim que um cliente
+descobre que o recurso não existe. O "Restore Stock Settings" do ZMK Studio também
+devolve as configurações ao padrão.
+
+**Situação.** Ainda não foi experimentado em um teclado real: o contraste, a tela
+apagando em cada modo, a cópia para a metade periférica e as três requisições.
+Compila no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk).
 
 ## Componentes embutidos
 

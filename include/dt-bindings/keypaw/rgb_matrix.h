@@ -48,6 +48,18 @@
 #define RGB_MAP_SET_CMD 0x104
 #define RGB_MAP_RESET_CMD 0x105
 
+/* Module-local, internal command for the display (OLED) settings
+ * (CONFIG_KEYPAW_DISPLAY_SETTINGS, src/display_settings.c). The central pushes
+ * one setting to a peripheral with it. Like the map commands it is not
+ * user-bindable, and its handler returns before the kp_rgb_save_state() the
+ * other commands end with: the peripheral keeps the setting in its own flash
+ * record, not in the RGB state.
+ *
+ * param1 holds the command in its low 12 bits and the setting id in bits 12 to
+ * 15 (RGB_DISPLAY_PARAM1 in src/display_settings.h); param2 is the value, an
+ * int32 carried as a uint32. */
+#define RGB_DISPLAY_SET_CMD 0x106
+
 /* A "mapping" entry is one of two things:
  *
  *   - a plain integer N  -> the LED sits under key position N in the

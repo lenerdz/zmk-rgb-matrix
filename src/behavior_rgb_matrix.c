@@ -20,6 +20,7 @@
 #include <zmk/keymap.h>
 #include <zmk/rgb_matrix.h>
 
+#include "display_settings.h"
 #include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
@@ -656,6 +657,13 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
                                      struct zmk_behavior_binding_event event) {
   ARG_UNUSED(event);
   int ret;
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+  if (RGB_DISPLAY_IS_CMD(binding->param1)) {
+    /* A display setting, sent by the central to its peripheral. It is kept by
+     * display_settings.c, not in the saved RGB state, so no kp_rgb_save_state(). */
+    return kp_display_settings_command(binding->param1, binding->param2);
+  }
+#endif
   if (RGB_MAP_IS_CMD(binding->param1)) {
     /* An edit of the colour maps, sent by the central to its peripheral. Not part
      * of the saved state, so no kp_rgb_save_state(). */

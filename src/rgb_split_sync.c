@@ -16,6 +16,9 @@
  * a time, every slot the peripheral paints whose live colour differs from what the
  * peripheral is known to hold. An edit made later queues that phase again.
  *
+ * The display settings (display_settings.c) go last, one command per setting, and
+ * a change made later queues just that phase again.
+ *
  * Central only; the trigger is a poll, as there is no central-side "peripheral
  * connected" event.
  */
@@ -36,6 +39,7 @@
 #include <zmk/split/central.h>
 #include <zmk/split/transport/central.h>
 
+#include "display_settings.h"
 #include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
@@ -47,6 +51,14 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define KP_RGB_SYNC_HAS_MAPS 1
 #else
 #define KP_RGB_SYNC_HAS_MAPS 0
+#endif
+
+/* The display settings (display_settings.c) are synced when the module has
+ * them. */
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+#define KP_RGB_SYNC_HAS_DISPLAY 1
+#else
+#define KP_RGB_SYNC_HAS_DISPLAY 0
 #endif
 
 #define KP_RGB_SYNC_SOURCES MAX(ZMK_SPLIT_CENTRAL_PERIPHERAL_COUNT, 1)
@@ -62,6 +74,7 @@ enum kp_rgb_sync_phase {
   KP_RGB_SYNC_POWER,    /* RGB_ON_CMD / RGB_OFF_CMD */
   KP_RGB_SYNC_OVERLAYS,
   KP_RGB_SYNC_MAPS, /* colour maps; also queued alone by an edit */
+  KP_RGB_SYNC_DISPLAY, /* display settings; also queued alone by a change */
 };
 
 enum kp_rgb_sync_emit {
@@ -80,6 +93,10 @@ struct kp_rgb_sync_source {
   /* Last effect fully pushed to this source; KP_RGB_SYNC_NO_EFFECT until one
    * completes. A change of active effect away from it re-queues a push. */
   uint16_t synced_effect;
+#if KP_RGB_SYNC_HAS_DISPLAY
+  /* The next display setting to push in the display phase. */
+  uint8_t display_index;
+#endif
   /* Snapshot taken under kp_rgb_matrix_lock() at KP_RGB_SYNC_SELECT. */
   uint16_t effect_index;
   uint16_t duration_ms;
@@ -103,6 +120,10 @@ static const struct zmk_split_transport_central *kp_rgb_sync_transport;
 #if KP_RGB_SYNC_HAS_MAPS
 static struct k_work kp_rgb_sync_maps_work;
 static volatile bool kp_rgb_sync_maps_ready;
+#endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+static struct k_work kp_rgb_sync_display_work;
+static volatile bool kp_rgb_sync_display_ready;
 #endif
 
 /* Registration order is priority order, and a NULL get_status means "always
@@ -288,10 +309,36 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_maps(uint8_t source,
     return KP_RGB_SYNC_EMIT_SENT;
   }
 
+#if KP_RGB_SYNC_HAS_DISPLAY
+  st->phase = KP_RGB_SYNC_DISPLAY;
+  st->display_index = 0;
+  return KP_RGB_SYNC_EMIT_SENT;
+#else
+  LOG_INF("Complete for source %u", source);
+  return KP_RGB_SYNC_EMIT_DONE;
+#endif
+}
+#endif /* KP_RGB_SYNC_HAS_MAPS */
+
+#if KP_RGB_SYNC_HAS_DISPLAY
+/* The display phase: every display setting, one per call. The values are read
+ * afresh on every call. */
+static enum kp_rgb_sync_emit kp_rgb_sync_emit_display(uint8_t source,
+                                                      struct kp_rgb_sync_source *st) {
+  uint32_t param1, param2;
+
+  if (kp_display_sync_get(st->display_index, &param1, &param2)) {
+    if (!kp_rgb_sync_send(source, param1, param2)) {
+      return KP_RGB_SYNC_EMIT_RETRY;
+    }
+    st->display_index++;
+    return KP_RGB_SYNC_EMIT_SENT;
+  }
+
   LOG_INF("Complete for source %u", source);
   return KP_RGB_SYNC_EMIT_DONE;
 }
-#endif /* KP_RGB_SYNC_HAS_MAPS */
+#endif /* KP_RGB_SYNC_HAS_DISPLAY */
 
 /* Emits at most one wire command. */
 static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
@@ -299,6 +346,11 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
 #if KP_RGB_SYNC_HAS_MAPS
   if (st->phase == KP_RGB_SYNC_MAPS) {
     return kp_rgb_sync_emit_maps(source, st);
+  }
+#endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+  if (st->phase == KP_RGB_SYNC_DISPLAY) {
+    return kp_rgb_sync_emit_display(source, st);
   }
 #endif
   if (st->phase != KP_RGB_SYNC_OVERLAYS) {
@@ -363,6 +415,10 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_one(uint8_t source,
 #if KP_RGB_SYNC_HAS_MAPS
   st->phase = KP_RGB_SYNC_MAPS;
   return KP_RGB_SYNC_EMIT_SENT;
+#elif KP_RGB_SYNC_HAS_DISPLAY
+  st->phase = KP_RGB_SYNC_DISPLAY;
+  st->display_index = 0;
+  return KP_RGB_SYNC_EMIT_SENT;
 #else
   LOG_INF("Complete for source %u", source);
   return KP_RGB_SYNC_EMIT_DONE;
@@ -401,6 +457,43 @@ void kp_rgb_sync_maps_kick(void) {
   }
 }
 #endif /* KP_RGB_SYNC_HAS_MAPS */
+
+#if KP_RGB_SYNC_HAS_DISPLAY
+/* Queues the display phase for every source that is idle. A source in the
+ * middle of the phase starts it again, because a setting it already passed may
+ * have changed; one in an earlier phase reaches the phase on its own and reads
+ * the live values only then. Runs on the module work queue, like every other
+ * handler here, so it cannot interleave with a step. */
+static void kp_rgb_sync_display_work_handler(struct k_work *work) {
+  ARG_UNUSED(work);
+  int64_t now = k_uptime_get();
+  bool queued = false;
+
+  for (size_t s = 0; s < ARRAY_SIZE(kp_rgb_sync_sources); s++) {
+    struct kp_rgb_sync_source *st = &kp_rgb_sync_sources[s];
+
+    if (st->seen && !st->pending) {
+      st->pending = true;
+      st->retry_count = 0;
+      st->phase = KP_RGB_SYNC_DISPLAY;
+      st->display_index = 0;
+      st->ready_at = now;
+    } else if (st->seen && st->phase == KP_RGB_SYNC_DISPLAY) {
+      st->display_index = 0;
+    }
+    queued = queued || st->pending;
+  }
+  if (queued) {
+    k_work_reschedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_step, K_NO_WAIT);
+  }
+}
+
+void kp_rgb_sync_display_kick(void) {
+  if (kp_rgb_sync_display_ready) {
+    k_work_submit_to_queue(kp_rgb_work_q(), &kp_rgb_sync_display_work);
+  }
+}
+#endif /* KP_RGB_SYNC_HAS_DISPLAY */
 
 static void kp_rgb_sync_step_handler(struct k_work *work) {
   ARG_UNUSED(work);
@@ -471,6 +564,10 @@ static int kp_rgb_split_sync_init(void) {
 #if KP_RGB_SYNC_HAS_MAPS
   k_work_init(&kp_rgb_sync_maps_work, kp_rgb_sync_maps_work_handler);
   kp_rgb_sync_maps_ready = true;
+#endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+  k_work_init(&kp_rgb_sync_display_work, kp_rgb_sync_display_work_handler);
+  kp_rgb_sync_display_ready = true;
 #endif
   /* The module work queue is started at POST_KERNEL, well before this. The
    * first poll is delayed rather than immediate to stay clear of the

@@ -251,3 +251,67 @@ config KEYPAW_RGB_MAPS_STUDIO
       Without ZMK Studio on the build (the peripheral half, or ZMK_STUDIO off)
       this option is off, and the maps can still be set in devicetree and edited
       by whatever else calls the C API of rgb_maps.h.
+
+config KEYPAW_DISPLAY_SETTINGS
+    bool "Display (OLED) settings: contrast, screen off, toast"
+    default n
+    depends on KEYPAW_BEHAVIOR_RGB_MATRIX
+    depends on ZMK_DISPLAY
+    depends on !ZMK_DISPLAY_BLANK_ON_IDLE
+    help
+      A short list of numbered integer settings for the screens: the contrast of
+      each half, when the screen goes off (never, only on battery, always) and
+      after how many seconds, and the light toast of the zmk-nice-oled shield
+      (on or off, how long). Each half applies them at once and keeps them in its
+      own flash; the central pushes them to its peripheral with the same split
+      sync that carries the colour maps, and ZMK Studio edits them through the
+      display requests of lenerdz/zmk-studio-messages (see
+      KEYPAW_DISPLAY_SETTINGS_STUDIO).
+
+      The module blanks the screen by itself, so ZMK's own blanking
+      (ZMK_DISPLAY_BLANK_ON_IDLE) has to be off: it cannot tell USB from battery,
+      and it would turn the screen off whatever the setting says. The setting
+      "never" is the behavior of that option being off.
+
+      The commands that reach the peripheral travel in the RGB behavior (&kprgb),
+      so this needs KEYPAW_BEHAVIOR_RGB_MATRIX, and it has to be on in the build of
+      both halves.
+
+config KEYPAW_DISPLAY_TOAST_MS_DEFAULT
+    int "Default time the light toast stays on screen (ms)"
+    default 1500
+    range 500 5000
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "toast duration", which ZMK Studio can
+      change. 500 to 5000, the range of that setting.
+
+config KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS
+    int "Delay before a changed display setting is written to flash (ms)"
+    default 3000
+    range 100 60000
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      A change is applied at once. The write to flash waits this long after the
+      last change, so dragging a slider in ZMK Studio writes once. ZMK's own
+      CONFIG_ZMK_SETTINGS_SAVE_DEBOUNCE (60 s by default) is too long here: turning
+      the keyboard off within that time would lose the change.
+
+config KEYPAW_DISPLAY_SETTINGS_STUDIO
+    bool "Edit the display settings from ZMK Studio"
+    default y
+    depends on KEYPAW_DISPLAY_SETTINGS
+    depends on ZMK_STUDIO_RPC
+    help
+      Adds the display requests of the zmk-studio-messages fork
+      (lenerdz/zmk-studio-messages): list the settings, change one, restore the
+      defaults. A change is applied and kept at once, with no save step. Every
+      request needs the keyboard to be unlocked, like the keymap ones. Also
+      registers the settings with ZMK Studio's "restore stock settings".
+
+      Needs the protocol of that fork: the stock zmk-studio-messages has no such
+      requests, so building against it fails.
+
+      Without ZMK Studio on the build (the peripheral half, or ZMK_STUDIO off)
+      this option is off, and the settings are still applied, kept and received
+      from the central.
