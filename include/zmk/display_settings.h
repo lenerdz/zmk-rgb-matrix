@@ -47,7 +47,8 @@ enum kp_display_setting_id {
    * The canvas is drawn upright and the screen shows part of it, x 0 to 31 and
    * y 32 to 159. The right-screen animation is the exception: it is an image
    * that is already rotated, placed on the rotated canvas, so its x and y are
-   * that placement (see README: "Coordinates of the animation").
+   * that placement (see README: "Coordinates of the animation"). With a
+   * rotation (KP_OLED_R_ANIM_ROT) they are the placement of the turned picture.
    */
 
   /* Right screen (the peripheral half). */
@@ -119,6 +120,24 @@ enum kp_display_setting_id {
   KP_OLED_L_WPM_GRAPH_SHOW = 104,
   KP_OLED_L_WPM_GRAPH_X = 105,
   KP_OLED_L_WPM_GRAPH_Y = 106,
+
+  /* More of the right-screen animation (or image), whose block (16 to 23) is
+   * full of what the first version needed.
+   *
+   * 0 to 3: quarter turns clockwise, as the picture is looked at. */
+  KP_OLED_R_ANIM_ROT = 112,
+  /* enum kp_oled_mix: how a lit pixel of the picture mixes with the widgets
+   * that are under it. */
+  KP_OLED_R_ANIM_MIX = 113,
+  /* The piece of the picture that shows, in pixels of the picture as it is
+   * looked at (after ROT), from its top left corner. Two numbers in each
+   * setting, 8 bits apiece, so that a change of the piece is one write:
+   *   CROP_XY = x | y << 8         0 to 65535
+   *   CROP_WH = width | height << 8
+   * A width or a height of 0 (the default) is the whole picture. What goes
+   * past the picture is cut off. */
+  KP_OLED_R_ANIM_CROP_XY = 114,
+  KP_OLED_R_ANIM_CROP_WH = 115,
 };
 
 /* The most settings the module keeps: the size of its bitmap of changes and of
@@ -140,9 +159,42 @@ enum kp_oled_anim_kind {
   KP_OLED_ANIM_POKEMON = 4, /* 48 frames */
   KP_OLED_ANIM_VIM = 5,     /* a still image */
   KP_OLED_ANIM_VIP_MARCOS = 6, /* a still image */
+
+  /* The pictures that scripts/pictures/make_pictures.py of zmk-nice-oled draws (the
+   * list is assets/pictures/pictures.json there), 32 pixels wide: the width of the
+   * screen, so that none of it is cut off by the panel. A number is what the keyboard
+   * saves in its memory: only add at the end, never reorder or remove. */
+  KP_OLED_ANIM_EQUALIZER = 7,  /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_RADAR = 8,      /* 24 frames, 32 x 32 */
+  KP_OLED_ANIM_HEARTBEAT = 9,  /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_RAIN = 10,      /* 32 frames, 32 x 128 */
+  KP_OLED_ANIM_CUBE = 11,      /* 16 frames, 32 x 32 */
+  KP_OLED_ANIM_ATOM = 12,      /* 24 frames, 32 x 32 */
+  KP_OLED_ANIM_HELIX = 13,     /* 16 frames, 32 x 128 */
+  KP_OLED_ANIM_WARP = 14,      /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_SONAR = 15,     /* 16 frames, 32 x 32 */
+  KP_OLED_ANIM_BOUNCE = 16,    /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_FLAME = 17,     /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_MOUNTAINS = 18, /* a still image, 32 x 128 */
+  KP_OLED_ANIM_SKYLINE = 19,   /* a still image, 32 x 128 */
+  KP_OLED_ANIM_CIRCUIT = 20,   /* a still image, 32 x 128 */
+  KP_OLED_ANIM_ALIEN = 21,     /* a still image, 32 x 32 */
+  KP_OLED_ANIM_HEART = 22,     /* a still image, 32 x 32 */
+  KP_OLED_ANIM_KEYBOARD = 23,  /* a still image, 32 x 64 */
+  KP_OLED_ANIM_PULSAR = 24,    /* a still image, 32 x 128 */
+  KP_OLED_ANIM_ROCKET = 25,    /* a still image, 32 x 64 */
 };
 
-#define KP_OLED_ANIM_KIND_COUNT 7
+#define KP_OLED_ANIM_KIND_COUNT 26
+
+/* The values of KP_OLED_R_ANIM_MIX. */
+enum kp_oled_mix {
+  /* Both stay lit where a widget and the picture overlap. */
+  KP_OLED_MIX_ADD = 0,
+  /* The picture flips what is under it: a widget shows in reverse where it is
+   * over a lit part of the picture, and stays readable. */
+  KP_OLED_MIX_INVERT = 1,
+};
 
 enum kp_display_off_mode {
   KP_DISPLAY_OFF_NEVER = 0,

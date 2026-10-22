@@ -179,6 +179,11 @@ static const struct kp_display_def kp_display_defs[] = {
     {KP_OLED_R_ANIM_KIND, 0, KP_OLED_ANIM_KIND_COUNT - 1,
      KP_OLED_ANIM_KIND_DEFAULT, true},
     {KP_OLED_R_ANIM_MS, 0, 60000, 0, true},
+    {KP_OLED_R_ANIM_ROT, 0, 3, 0, true},
+    {KP_OLED_R_ANIM_MIX, KP_OLED_MIX_ADD, KP_OLED_MIX_INVERT, KP_OLED_MIX_INVERT,
+     true},
+    {KP_OLED_R_ANIM_CROP_XY, 0, 65535, 0, true},
+    {KP_OLED_R_ANIM_CROP_WH, 0, 65535, 0, true},
 #endif
     KP_OLED_SHOW(KP_OLED_R_BATTERY_SHOW, true),
     KP_OLED_COORD(KP_OLED_R_BATTERY_X, CONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_X,
@@ -248,7 +253,7 @@ static const struct kp_display_def kp_display_defs[] = {
 };
 
 /* The ids travel in 8 bits (RGB_DISPLAY_PARAM1). */
-BUILD_ASSERT(KP_OLED_L_WPM_GRAPH_Y < 256,
+BUILD_ASSERT(KP_OLED_L_WPM_GRAPH_Y < 256 && KP_OLED_R_ANIM_CROP_WH < 256,
              "display setting ids have to be below 256");
 /* The bitmap of changes and the copy of a peripheral's values have
  * KP_DISPLAY_SETTING_CAP entries. */

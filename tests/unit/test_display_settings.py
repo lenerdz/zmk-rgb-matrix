@@ -157,6 +157,7 @@ CENTRAL_LAYOUT_SCENARIOS = COMMON_LAYOUT_SCENARIOS + [
     "central_applies_left",
     "layout_defaults",
     "layout_range",
+    "layout_picture",
     "layout_event",
     "layout_persist",
     "layout_load",
@@ -167,6 +168,7 @@ PERIPHERAL_LAYOUT_SCENARIOS = [
     "peripheral",
     "peripheral_boot",
     "layout_defaults",
+    "layout_picture",
     "layout_peripheral",
     "layout_peripheral_boot",
 ]

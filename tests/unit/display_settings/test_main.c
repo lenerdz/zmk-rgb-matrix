@@ -471,6 +471,11 @@ static void s_layout_defaults(void) {
   DEFAULT_IS(KP_OLED_R_ANIM_Y, -18);
   DEFAULT_IS(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_CAT);
   DEFAULT_IS(KP_OLED_R_ANIM_MS, 0);
+  /* not turned, flipping what it is over, the whole picture */
+  DEFAULT_IS(KP_OLED_R_ANIM_ROT, 0);
+  DEFAULT_IS(KP_OLED_R_ANIM_MIX, KP_OLED_MIX_INVERT);
+  DEFAULT_IS(KP_OLED_R_ANIM_CROP_XY, 0);
+  DEFAULT_IS(KP_OLED_R_ANIM_CROP_WH, 0);
   DEFAULT_IS(KP_OLED_R_BATTERY_SHOW, 1);
   DEFAULT_IS(KP_OLED_R_BATTERY_X, 0);
   DEFAULT_IS(KP_OLED_R_BATTERY_Y, 50);
@@ -482,7 +487,7 @@ static void s_layout_defaults(void) {
 
 #ifdef TEST_LEFT_WIDGETS
   /* the left screen */
-  CHECK(kp_display_setting_count() == 43);
+  CHECK(kp_display_setting_count() == 47);
   DEFAULT_IS(KP_OLED_L_OUTPUT_SHOW, 1);
   DEFAULT_IS(KP_OLED_L_OUTPUT_X, 0);
   DEFAULT_IS(KP_OLED_L_OUTPUT_Y, 34);
@@ -524,6 +529,13 @@ static void s_layout_defaults(void) {
       CHECK(info.min == 0 && info.max == KP_OLED_ANIM_KIND_COUNT - 1);
     } else if (info.id == KP_OLED_R_ANIM_MS) {
       CHECK(info.min == 0 && info.max == 60000);
+    } else if (info.id == KP_OLED_R_ANIM_ROT) {
+      CHECK(info.min == 0 && info.max == 3);
+    } else if (info.id == KP_OLED_R_ANIM_MIX) {
+      CHECK(info.min == KP_OLED_MIX_ADD && info.max == KP_OLED_MIX_INVERT);
+    } else if (info.id == KP_OLED_R_ANIM_CROP_XY ||
+               info.id == KP_OLED_R_ANIM_CROP_WH) {
+      CHECK(info.min == 0 && info.max == 65535);
     } else if (info.id % 8 == 0) {
       CHECK(info.min == 0 && info.max == 1); /* a switch */
     } else {
@@ -531,9 +543,9 @@ static void s_layout_defaults(void) {
     }
   }
 #ifdef TEST_LEFT_WIDGETS
-  CHECK(shown == 37);
+  CHECK(shown == 41);
 #else
-  CHECK(shown == 13);
+  CHECK(shown == 17);
 #endif
 
   /* kp_display_setting_default is what restoring sets, whatever the value is now */
@@ -556,6 +568,12 @@ static void s_layout_range(void) {
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_SHOW, -1) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_VIP_MARCOS) == 0);
+  /* the pictures that come after them: the first and the last */
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_EQUALIZER) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_ROCKET) == 0);
+  CHECK(KP_OLED_ANIM_ROCKET == KP_OLED_ANIM_KIND_COUNT - 1);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_ROCKET);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60001) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60000) == 0);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, -1) == -EINVAL);
@@ -565,10 +583,69 @@ static void s_layout_range(void) {
   CHECK(kp_display_setting_set(21, 1) == -ENOENT);
   CHECK(kp_display_setting_set(40, 1) == -ENOENT);
   CHECK(kp_display_setting_set(107, 1) == -ENOENT);
+  CHECK(kp_display_setting_set(111, 1) == -ENOENT);
+  CHECK(kp_display_setting_set(116, 1) == -ENOENT);
   CHECK(kp_display_setting_set(255, 1) == -ENOENT);
   /* a rejected value changes nothing */
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_Y, 999) == -EINVAL);
   CHECK(kp_display_setting_get(KP_OLED_R_ANIM_Y) == -18);
+}
+
+/* The picture of the right screen: how it is turned, how it mixes and which piece of it shows. */
+static void s_layout_picture(void) {
+  boot();
+  int events = g_layout_events;
+
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_ROT, 4) == -EINVAL);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_ROT, -1) == -EINVAL);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_ROT, 3) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MIX, 2) == -EINVAL);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MIX, KP_OLED_MIX_ADD) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_XY, 65536) == -EINVAL);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_XY, -1) == -EINVAL);
+  /* x 5, y 10: 5 | 10 << 8 */
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_XY, 5 | (10 << 8)) == 0);
+  /* 32 wide, 69 tall */
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_WH, 32 | (69 << 8)) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_WH, 65535) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_CROP_WH, 32 | (69 << 8)) == 0);
+
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_ROT) == 3);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_MIX) == KP_OLED_MIX_ADD);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_CROP_XY) == 0x0a05);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_CROP_WH) == 0x4520);
+
+  /* the widgets draw again, once, for all of them */
+  sim_advance(30);
+  CHECK(g_layout_events == events + 1 && g_layout_last_id == KP_OLED_R_ANIM_CROP_WH);
+
+  /* what differs from the default is kept in the flash, and the rest is not */
+  sim_advance(SEC(4));
+  struct record *r = store_find("keypaw/display/112");
+  CHECK(r != NULL && r->value == 3 && r->len == 4);
+  r = store_find("keypaw/display/113");
+  CHECK(r != NULL && r->value == KP_OLED_MIX_ADD);
+  r = store_find("keypaw/display/114");
+  CHECK(r != NULL && r->value == 0x0a05);
+  r = store_find("keypaw/display/115");
+  CHECK(r != NULL && r->value == 0x4520);
+  CHECK(store_count() == 4);
+
+  /* the default of the mix is the one that is not stored */
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MIX, KP_OLED_MIX_INVERT) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_ROT, 0) == 0);
+  sim_advance(SEC(4));
+  CHECK(store_find("keypaw/display/112") == NULL);
+  CHECK(store_find("keypaw/display/113") == NULL);
+  CHECK(store_count() == 2);
+
+  /* restoring the defaults puts the whole picture back */
+  CHECK(kp_display_settings_restore_defaults() == 0);
+  sim_advance(SEC(4));
+  DEFAULT_IS(KP_OLED_R_ANIM_CROP_XY, 0);
+  DEFAULT_IS(KP_OLED_R_ANIM_CROP_WH, 0);
+  CHECK(store_count() == 0);
+  CHECK(g_log_warnings == 0);
 }
 
 static void s_layout_event(void) {
@@ -666,7 +743,7 @@ static void s_layout_load(void) {
   static const struct fake_rec recs[] = {
       {"17", 30, 4},     /* valid */
       {"18", -40, 4},    /* valid, negative */
-      {"19", 9, 4},      /* kind out of range: ignored */
+      {"19", KP_OLED_ANIM_KIND_COUNT, 4}, /* kind out of range: ignored */
       {"20", 99999, 4},  /* cycle time out of range: ignored */
       {"25", -161, 4},   /* coordinate out of range: ignored */
       {"32", 0, 4},      /* valid */
@@ -698,8 +775,9 @@ static void s_layout_sync(void) {
     shadow[i] = KP_DISPLAY_SYNC_UNKNOWN;
   }
 
-  static const uint8_t expect[] = {2,  3,  4,  5,  6,  16, 17, 18, 19,
-                                   20, 24, 25, 26, 32, 33, 34, 41, 42};
+  static const uint8_t expect[] = {2,  3,   4,   5,  6,  16, 17, 18,
+                                   19, 20,  112, 113, 114, 115, 24, 25,
+                                   26, 32,  33,  34,  41,  42};
   uint32_t p1, p2;
   size_t sent = 0;
   int next = 0;
@@ -762,7 +840,7 @@ static void s_layout_command(void) {
 /* The peripheral keeps only the settings of its own screen. */
 static void s_layout_peripheral(void) {
   boot();
-  CHECK(kp_display_setting_count() == 19);
+  CHECK(kp_display_setting_count() == 23);
   DEFAULT_IS(KP_OLED_R_ANIM_X, 18);
   CHECK(kp_display_setting_set(KP_OLED_L_LAYER_X, 5) == -ENOENT);
   CHECK(kp_display_setting_set(KP_OLED_L_OUTPUT_SHOW, 0) == -ENOENT);
@@ -821,6 +899,7 @@ static const struct scenario scenarios[] = {
 #ifdef CONFIG_KEYPAW_OLED_LAYOUT
     {"layout_defaults", s_layout_defaults},
     {"layout_range", s_layout_range},
+    {"layout_picture", s_layout_picture},
     {"layout_event", s_layout_event},
     {"layout_persist", s_layout_persist},
     {"layout_load", s_layout_load},
