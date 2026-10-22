@@ -27,6 +27,10 @@
  *     which cannot tell USB from battery (CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE has to
  *     be off). Any activity wakes the screen.
  *   - Toast: read by the zmk-nice-oled toast widget with kp_display_setting_get().
+ *   - OLED layout (CONFIG_KEYPAW_OLED_LAYOUT): which widgets of the zmk-nice-oled
+ *     screens are drawn, where, and which animation the right screen plays. The
+ *     widgets read the values with kp_display_setting_get(), and the event
+ *     zmk_display_settings_changed tells them to draw again.
  *
  * Every call into the display driver runs on the display work queue, the one
  * LVGL flushes from, so two I2C sequences never interleave.
@@ -53,6 +57,9 @@
 #include <zmk/display.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/activity_state_changed.h>
+#if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
+#include <zmk/events/display_settings_changed.h>
+#endif
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 #include <zmk/events/usb_conn_state_changed.h>
 #include <zmk/usb.h>
@@ -88,27 +95,165 @@ struct kp_display_def {
   int32_t min;
   int32_t max;
   int32_t def;
+  /* The peripheral applies it, so the central pushes it there. */
+  bool to_peripheral;
 };
+
+#if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
+
+/* The screen of this build is the left one (the central, or a keyboard that is
+ * not split). The right one is always listed: the central keeps and pushes it. */
+#define KP_OLED_LEFT_HERE                                                      \
+  (!IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL))
+
+#define KP_OLED_SHOW(id, peripheral) {id, 0, 1, 1, peripheral}
+#define KP_OLED_COORD(id, def, peripheral)                                     \
+  {id, KP_OLED_COORD_MIN, KP_OLED_COORD_MAX, def, peripheral}
+
+/* What the right screen draws by default: the choice of the build, as
+ * zmk-nice-oled makes it (CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_*). */
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL)
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_HEAD
+#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CAT)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_CAT
+#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SPACEMAN)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_SPACEMAN
+#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_POKEMON)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_POKEMON
+#else
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_CRYSTAL
+#endif
+#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_VIM
+#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIP_MARCOS)
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_VIP_MARCOS
+#else
+#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_CRYSTAL
+#endif
+
+/* The battery of this half is the text of both halves where the build asks for
+ * it (zmk-nice-oled draws that at a fixed place). */
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_CENTRAL_SHOW_BATTERY_PERIPHERAL_ALL) ||  \
+    IS_ENABLED(CONFIG_NICE_OLED_WIDGET_CENTRAL_SHOW_BATTERY_PERIPHERAL_ONLY) || \
+    IS_ENABLED(CONFIG_NICE_OLED_WIDGET_CENTRAL_SHOW_BATTERY_PERIPHERAL_AND_CENTRAL)
+#define KP_OLED_L_BATTERY_X_DEFAULT 0
+#define KP_OLED_L_BATTERY_Y_DEFAULT 19
+#else
+#define KP_OLED_L_BATTERY_X_DEFAULT CONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_X
+#define KP_OLED_L_BATTERY_Y_DEFAULT CONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_Y
+#endif
+
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_PROFILE_BIG)
+#define KP_OLED_L_PROFILE_X_DEFAULT 0
+#define KP_OLED_L_PROFILE_Y_DEFAULT 129
+#else
+#define KP_OLED_L_PROFILE_X_DEFAULT CONFIG_NICE_OLED_WIDGET_PROFILE_CUSTOM_X
+#define KP_OLED_L_PROFILE_Y_DEFAULT CONFIG_NICE_OLED_WIDGET_PROFILE_CUSTOM_Y
+#endif
+
+/* The grid under the WPM graph has no option: zmk-nice-oled draws it here. */
+#define KP_OLED_L_WPM_GRAPH_X_DEFAULT (-1)
+#define KP_OLED_L_WPM_GRAPH_Y_DEFAULT 95
+
+#endif /* CONFIG_KEYPAW_OLED_LAYOUT */
 
 static const struct kp_display_def kp_display_defs[] = {
-    {KP_DISPLAY_LEFT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT},
-    {KP_DISPLAY_RIGHT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT},
+    {KP_DISPLAY_LEFT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT, false},
+    {KP_DISPLAY_RIGHT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT, true},
     {KP_DISPLAY_OFF_MODE, KP_DISPLAY_OFF_NEVER, KP_DISPLAY_OFF_ALWAYS,
-     KP_DISPLAY_OFF_NEVER},
+     KP_DISPLAY_OFF_NEVER, true},
     {KP_DISPLAY_OFF_AFTER_S, KP_DISPLAY_IDLE_S, 3600,
-     MAX(60, KP_DISPLAY_IDLE_S)},
-    {KP_DISPLAY_TOAST, 0, 1, 1},
-    {KP_DISPLAY_TOAST_MS, 500, 5000, CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT},
+     MAX(60, KP_DISPLAY_IDLE_S), true},
+    {KP_DISPLAY_TOAST, 0, 1, 1, true},
+    {KP_DISPLAY_TOAST_MS, 500, 5000, CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT,
+     true},
+#if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
+    /* Right screen. */
+#if !IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY)
+    KP_OLED_SHOW(KP_OLED_R_ANIM_SHOW, true),
+    KP_OLED_COORD(KP_OLED_R_ANIM_X,
+                  CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CUSTOM_X, true),
+    KP_OLED_COORD(KP_OLED_R_ANIM_Y,
+                  CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CUSTOM_Y, true),
+    {KP_OLED_R_ANIM_KIND, 0, KP_OLED_ANIM_KIND_COUNT - 1,
+     KP_OLED_ANIM_KIND_DEFAULT, true},
+    {KP_OLED_R_ANIM_MS, 0, 60000, 0, true},
+#endif
+    KP_OLED_SHOW(KP_OLED_R_BATTERY_SHOW, true),
+    KP_OLED_COORD(KP_OLED_R_BATTERY_X, CONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_X,
+                  true),
+    KP_OLED_COORD(KP_OLED_R_BATTERY_Y, CONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_Y,
+                  true),
+    KP_OLED_SHOW(KP_OLED_R_LINK_SHOW, true),
+    KP_OLED_COORD(KP_OLED_R_LINK_X, CONFIG_NICE_OLED_WIDGET_OUTPUT_BT_CUSTOM_X,
+                  true),
+    KP_OLED_COORD(KP_OLED_R_LINK_Y, CONFIG_NICE_OLED_WIDGET_OUTPUT_BT_CUSTOM_Y,
+                  true),
+    KP_OLED_COORD(KP_OLED_R_TOAST_X, CONFIG_NICE_OLED_WIDGET_LED_TOAST_CUSTOM_X,
+                  true),
+    KP_OLED_COORD(KP_OLED_R_TOAST_Y, CONFIG_NICE_OLED_WIDGET_LED_TOAST_CUSTOM_Y,
+                  true),
+#if KP_OLED_LEFT_HERE
+    /* Left screen. */
+    KP_OLED_SHOW(KP_OLED_L_OUTPUT_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_OUTPUT_X, CONFIG_NICE_OLED_WIDGET_OUTPUT_USB_CUSTOM_X,
+                  false),
+    KP_OLED_COORD(KP_OLED_L_OUTPUT_Y, CONFIG_NICE_OLED_WIDGET_OUTPUT_USB_CUSTOM_Y,
+                  false),
+    KP_OLED_SHOW(KP_OLED_L_BATTERY_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_BATTERY_X, KP_OLED_L_BATTERY_X_DEFAULT, false),
+    KP_OLED_COORD(KP_OLED_L_BATTERY_Y, KP_OLED_L_BATTERY_Y_DEFAULT, false),
+    KP_OLED_SHOW(KP_OLED_L_PROFILE_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_PROFILE_X, KP_OLED_L_PROFILE_X_DEFAULT, false),
+    KP_OLED_COORD(KP_OLED_L_PROFILE_Y, KP_OLED_L_PROFILE_Y_DEFAULT, false),
+    KP_OLED_SHOW(KP_OLED_L_PROFILE_NUM_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_PROFILE_NUM_X,
+                  CONFIG_NICE_OLED_WIDGET_PROFILE_TEXT_CUSTOM_X, false),
+    KP_OLED_COORD(KP_OLED_L_PROFILE_NUM_Y,
+                  CONFIG_NICE_OLED_WIDGET_PROFILE_TEXT_CUSTOM_Y, false),
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_LAYER)
+    KP_OLED_SHOW(KP_OLED_L_LAYER_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_LAYER_X, CONFIG_NICE_OLED_WIDGET_LAYER_CUSTOM_X,
+                  false),
+    KP_OLED_COORD(KP_OLED_L_LAYER_Y, CONFIG_NICE_OLED_WIDGET_LAYER_CUSTOM_Y,
+                  false),
+#endif
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_WPM_SPEEDOMETER)
+    KP_OLED_SHOW(KP_OLED_L_WPM_GAUGE_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_GAUGE_X,
+                  CONFIG_NICE_OLED_WIDGET_WPM_GAUGE_CUSTOM_X, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_GAUGE_Y,
+                  CONFIG_NICE_OLED_WIDGET_WPM_GAUGE_CUSTOM_Y, false),
+#endif
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_WPM_NUMBER)
+    KP_OLED_SHOW(KP_OLED_L_WPM_NUMBER_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_NUMBER_X,
+                  CONFIG_NICE_OLED_WIDGET_WPM_LABEL_CUSTOM_X, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_NUMBER_Y,
+                  CONFIG_NICE_OLED_WIDGET_WPM_LABEL_CUSTOM_Y, false),
+#endif
+/* zmk-nice-oled leaves the graph out where it makes room for the bongo cat,
+ * the luna dog or the fixed modifier indicators. */
+#if IS_ENABLED(CONFIG_NICE_OLED_WIDGET_WPM_GRAPH) &&                           \
+    !IS_ENABLED(CONFIG_NICE_OLED_WIDGET_WPM_LUNA) &&                           \
+    !IS_ENABLED(CONFIG_NICE_OLED_WIDGET_WPM_BONGO_CAT) &&                      \
+    !IS_ENABLED(CONFIG_NICE_OLED_WIDGET_MODIFIERS_INDICATORS_FIXED)
+    KP_OLED_SHOW(KP_OLED_L_WPM_GRAPH_SHOW, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_GRAPH_X, KP_OLED_L_WPM_GRAPH_X_DEFAULT, false),
+    KP_OLED_COORD(KP_OLED_L_WPM_GRAPH_Y, KP_OLED_L_WPM_GRAPH_Y_DEFAULT, false),
+#endif
+#endif /* KP_OLED_LEFT_HERE */
+#endif /* CONFIG_KEYPAW_OLED_LAYOUT */
 };
 
-/* The ids travel in 4 bits (RGB_DISPLAY_PARAM1). */
-BUILD_ASSERT(KP_DISPLAY_TOAST_MS < 16, "display setting ids have to be below 16");
-BUILD_ASSERT(ARRAY_SIZE(kp_display_defs) == KP_DISPLAY_SETTING_COUNT,
-             "KP_DISPLAY_SETTING_COUNT (zmk/display_settings.h) does not match "
-             "the table");
-/* One dirty bit per entry. */
-BUILD_ASSERT(ARRAY_SIZE(kp_display_defs) <= 32,
-             "kp_display_dirty has 32 bits");
+/* The ids travel in 8 bits (RGB_DISPLAY_PARAM1). */
+BUILD_ASSERT(KP_OLED_L_WPM_GRAPH_Y < 256,
+             "display setting ids have to be below 256");
+/* DisplayInfo of the protocol lists at most KP_DISPLAY_SETTING_CAP. */
+BUILD_ASSERT(ARRAY_SIZE(kp_display_defs) <= KP_DISPLAY_SETTING_CAP,
+             "more display settings than KP_DISPLAY_SETTING_CAP "
+             "(zmk/display_settings.h)");
 
 static int32_t kp_display_values[ARRAY_SIZE(kp_display_defs)];
 static K_MUTEX_DEFINE(kp_display_lock);
@@ -132,6 +277,11 @@ int32_t kp_display_setting_get(enum kp_display_setting_id id) {
   return index < 0 ? 0 : kp_display_values[index];
 }
 
+int32_t kp_display_setting_default(enum kp_display_setting_id id) {
+  int index = kp_display_index((uint8_t)id);
+  return index < 0 ? 0 : kp_display_defs[index].def;
+}
+
 size_t kp_display_setting_count(void) { return ARRAY_SIZE(kp_display_defs); }
 
 int kp_display_setting_info(size_t index, struct kp_display_setting_info *out) {
@@ -146,7 +296,17 @@ int kp_display_setting_info(size_t index, struct kp_display_setting_info *out) {
   return 0;
 }
 
-bool kp_display_sync_get(size_t index, uint32_t *param1, uint32_t *param2) {
+int kp_display_sync_next(size_t from, const int32_t *shadow) {
+  for (size_t i = from; i < ARRAY_SIZE(kp_display_defs); i++) {
+    if (kp_display_defs[i].to_peripheral &&
+        shadow[i] != kp_display_values[i]) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+bool kp_display_sync_command(size_t index, uint32_t *param1, uint32_t *param2) {
   if (index >= ARRAY_SIZE(kp_display_defs)) {
     return false;
   }
@@ -158,14 +318,14 @@ bool kp_display_sync_get(size_t index, uint32_t *param1, uint32_t *param2) {
 /* ---- flash ------------------------------------------------------------------ */
 
 /* Bit i is set while the record of entry i has to be written. */
-static atomic_t kp_display_dirty;
+static ATOMIC_DEFINE(kp_display_dirty, KP_DISPLAY_SETTING_CAP);
 
 /* A setting at its default has no record. */
 static void kp_display_save_handler(struct k_work *work) {
   ARG_UNUSED(work);
 
   for (size_t i = 0; i < ARRAY_SIZE(kp_display_defs); i++) {
-    if (!atomic_test_and_clear_bit(&kp_display_dirty, i)) {
+    if (!atomic_test_and_clear_bit(kp_display_dirty, i)) {
       continue;
     }
 
@@ -187,7 +347,7 @@ static void kp_display_save_handler(struct k_work *work) {
 static K_WORK_DELAYABLE_DEFINE(kp_display_save_work, kp_display_save_handler);
 
 static void kp_display_request_save(size_t index) {
-  atomic_set_bit(&kp_display_dirty, index);
+  atomic_set_bit(kp_display_dirty, index);
   k_work_reschedule(&kp_display_save_work,
                     K_MSEC(CONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS));
 }
@@ -220,6 +380,8 @@ static int kp_display_load_cb(const char *name, size_t len,
   }
   return 0;
 }
+
+static void kp_display_notify_layout(uint8_t id);
 
 /* ---- the screen -------------------------------------------------------------- */
 
@@ -363,6 +525,8 @@ ZMK_SUBSCRIPTION(kp_display_settings, zmk_usb_conn_state_changed);
 static void kp_display_boot_handler(struct k_work *work) {
   ARG_UNUSED(work);
   kp_display_submit(&kp_display_contrast_work);
+  /* The widgets drew with the defaults if they came up before the load. */
+  kp_display_notify_layout(0);
 }
 
 static K_WORK_DELAYABLE_DEFINE(kp_display_boot_work, kp_display_boot_handler);
@@ -421,9 +585,51 @@ SYS_INIT(kp_display_settings_init, POST_KERNEL,
 
 /* ---- changes -------------------------------------------------------------- */
 
+#if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
+
+/* Changes that follow one another (restoring the defaults, the central pushing
+ * the whole layout to a peripheral) make one event: the widgets draw the screen
+ * again once, not once per setting. */
+#define KP_DISPLAY_LAYOUT_EVENT_DELAY_MS 20
+
+static volatile uint8_t kp_display_layout_last_id;
+
+static void kp_display_layout_handler(struct k_work *work) {
+  ARG_UNUSED(work);
+
+  int err = raise_zmk_display_settings_changed(
+      (struct zmk_display_settings_changed){.id = kp_display_layout_last_id});
+
+  if (err < 0) {
+    LOG_WRN("Raising the display settings event failed (err %d)", err);
+  }
+}
+
+static K_WORK_DELAYABLE_DEFINE(kp_display_layout_work,
+                               kp_display_layout_handler);
+
+#endif /* CONFIG_KEYPAW_OLED_LAYOUT */
+
+/* Tells the screen widgets that the OLED layout changed. `id` is the setting
+ * that did, or 0 when any of them may have. Settings that are not part of the
+ * layout (the contrast, the screen off, the toast switch) are applied by this
+ * file and do not need the widgets. */
+static void kp_display_notify_layout(uint8_t id) {
+#if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
+  if (id == 0 || id >= KP_OLED_R_ANIM_SHOW) {
+    kp_display_layout_last_id = id;
+    k_work_reschedule(&kp_display_layout_work,
+                      K_MSEC(KP_DISPLAY_LAYOUT_EVENT_DELAY_MS));
+  }
+#else
+  ARG_UNUSED(id);
+#endif
+}
+
 static void kp_display_changed(size_t index) {
   kp_display_request_save(index);
   kp_display_apply_changed(kp_display_defs[index].id);
+  kp_display_notify_layout(kp_display_defs[index].id);
   /* Does nothing on a peripheral. */
   kp_rgb_sync_display_kick();
 }
@@ -463,7 +669,9 @@ int kp_display_settings_settings_reset(void) {
 
   /* The records go now, not after the debounce: the reset is a one-off. */
   k_work_cancel_delayable_sync(&kp_display_save_work, &sync);
-  atomic_set(&kp_display_dirty, BIT_MASK(ARRAY_SIZE(kp_display_defs)));
+  for (size_t i = 0; i < ARRAY_SIZE(kp_display_defs); i++) {
+    atomic_set_bit(kp_display_dirty, i);
+  }
   kp_display_save_handler(NULL);
   return 0;
 }

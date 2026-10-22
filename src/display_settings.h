@@ -21,17 +21,17 @@
 #include <zmk/display_settings.h>
 
 /* Wire format of RGB_DISPLAY_SET_CMD (dt-bindings/keypaw/rgb_matrix.h).
- * param1 = command | setting id << 12, so a setting id is 0 to 15; param2 is
- * the value, an int32 carried as a uint32. */
+ * param1 = command | setting id << 12, so a setting id is 0 to 255 (bits 12 to
+ * 19); param2 is the value, an int32 carried as a uint32. */
 #define RGB_DISPLAY_CMD_MASK 0x0FFFu
 #define RGB_DISPLAY_ID_SHIFT 12
 #define RGB_DISPLAY_PARAM1(cmd, id)                                            \
   ((uint32_t)(cmd) | ((uint32_t)(id) << RGB_DISPLAY_ID_SHIFT))
 #define RGB_DISPLAY_PARAM1_CMD(param1) ((param1) & RGB_DISPLAY_CMD_MASK)
 #define RGB_DISPLAY_PARAM1_ID(param1)                                          \
-  ((uint8_t)(((param1) >> RGB_DISPLAY_ID_SHIFT) & 0xFu))
+  ((uint8_t)(((param1) >> RGB_DISPLAY_ID_SHIFT) & 0xFFu))
 #define RGB_DISPLAY_IS_CMD(param1)                                             \
-  ((param1) <= 0xFFFFu && RGB_DISPLAY_PARAM1_CMD(param1) == RGB_DISPLAY_SET_CMD)
+  ((param1) <= 0xFFFFFu && RGB_DISPLAY_PARAM1_CMD(param1) == RGB_DISPLAY_SET_CMD)
 
 /* One setting as ZMK Studio reports it. */
 struct kp_display_setting_info {
@@ -62,9 +62,18 @@ int kp_display_settings_command(uint32_t param1, uint32_t param2);
 
 /* ---- split sync, on the central ------------------------------------------- */
 
-/* Entry `index` as the command that sets it on a peripheral; false past the
- * end. */
-bool kp_display_sync_get(size_t index, uint32_t *param1, uint32_t *param2);
+/* What the central keeps for each peripheral, per entry of the table, to send
+ * only what the peripheral does not hold: the value last sent to it, or this
+ * after a (re)connection, when nothing is known. */
+#define KP_DISPLAY_SYNC_UNKNOWN INT32_MIN
+
+/* The index of the first entry, from `from` on, that a peripheral applies (the
+ * table says which) and that `shadow` (KP_DISPLAY_SETTING_CAP entries) does not
+ * show it holding; -1 when there is none. */
+int kp_display_sync_next(size_t from, const int32_t *shadow);
+/* Entry `index` as the command that sets it on a peripheral, with the value it
+ * has now; false past the end. */
+bool kp_display_sync_command(size_t index, uint32_t *param1, uint32_t *param2);
 
 /* Asks the split sync to push the settings again: any context, no-op until the
  * sync has started and on a build without it. */

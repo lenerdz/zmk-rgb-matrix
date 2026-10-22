@@ -16,7 +16,14 @@ its own process, because the file keeps its state in statics. It checks:
     one), at boot and at every change;
   - when the screen goes off: the modes never, only on battery and always, the idle time of
     ZMK, USB being plugged and unplugged, the wake of a change made from ZMK Studio;
-  - the wire format of the command that carries a setting to the peripheral.
+  - the wire format of the command that carries a setting to the peripheral, and which
+    settings the central sends: the ones the peripheral applies, once after a connection and
+    then only what changes;
+  - the OLED layout (CONFIG_KEYPAW_OLED_LAYOUT, ids 16 and up), built with the options of
+    zmk-nice-oled that this keyboard has: the defaults that come from them, the ranges, the
+    event that tells the widgets to draw again (one for changes that follow each other, none
+    for the other settings, one after the load at boot), the flash records of the entries
+    past the first 32, and the table of a peripheral, which has only the right screen.
 
 It does not run on a keyboard: the display driver, the work queues and the settings
 backend are the stand-ins.
@@ -48,6 +55,7 @@ SHIMS = [
     "zmk/display.h",
     "zmk/event_manager.h",
     "zmk/events/activity_state_changed.h",
+    "zmk/events/display_settings_changed.h",
     "zmk/events/usb_conn_state_changed.h",
     "zmk/usb.h",
     "dt-bindings/zmk/rgb.h",
@@ -72,6 +80,43 @@ CENTRAL_DEFINES = [
 ]
 PERIPHERAL_DEFINES = ["-DCONFIG_ZMK_SPLIT=1"]
 
+# The OLED layout, with the defaults that zmk-nice-oled gives the 128x32 screens (its
+# Kconfig.defconfig) and the cat as the animation of the right screen.
+LAYOUT_DEFINES = [
+    "-DCONFIG_KEYPAW_OLED_LAYOUT=1",
+    "-DCONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL=1",
+    "-DCONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CAT=1",
+    "-DCONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CUSTOM_X=18",
+    "-DCONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_CUSTOM_Y=-18",
+    "-DCONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_BATTERY_CUSTOM_Y=50",
+    "-DCONFIG_NICE_OLED_WIDGET_OUTPUT_BT_CUSTOM_X=4",
+    "-DCONFIG_NICE_OLED_WIDGET_OUTPUT_BT_CUSTOM_Y=32",
+    "-DCONFIG_NICE_OLED_WIDGET_OUTPUT_USB_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_OUTPUT_USB_CUSTOM_Y=34",
+    "-DCONFIG_NICE_OLED_WIDGET_LED_TOAST_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_LED_TOAST_CUSTOM_Y=143",
+    "-DCONFIG_NICE_OLED_WIDGET_PROFILE_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_PROFILE_CUSTOM_Y=137",
+    "-DCONFIG_NICE_OLED_WIDGET_PROFILE_TEXT_CUSTOM_X=25",
+    "-DCONFIG_NICE_OLED_WIDGET_PROFILE_TEXT_CUSTOM_Y=32",
+    "-DCONFIG_NICE_OLED_WIDGET_LAYER_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_LAYER_CUSTOM_Y=146",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_GAUGE_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_GAUGE_CUSTOM_Y=70",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_LABEL_CUSTOM_X=0",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_LABEL_CUSTOM_Y=75",
+]
+# The widgets that only the build of the central half has (Kconfig.defconfig defines them
+# under "!ZMK_SPLIT || ZMK_SPLIT_ROLE_CENTRAL"): the peripheral build does not get them.
+LEFT_WIDGET_DEFINES = [
+    "-DTEST_LEFT_WIDGETS=1",
+    "-DCONFIG_NICE_OLED_WIDGET_LAYER=1",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_SPEEDOMETER=1",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_NUMBER=1",
+    "-DCONFIG_NICE_OLED_WIDGET_WPM_GRAPH=1",
+]
+
 CENTRAL_SCENARIOS = [
     "defaults",
     "contrast_persist",
@@ -93,6 +138,38 @@ CENTRAL_SCENARIOS = [
     "central_applies_left",
 ]
 PERIPHERAL_SCENARIOS = ["peripheral", "peripheral_boot", "sync"]
+
+# With the OLED layout the table is longer, so the scenarios that count it (defaults, sync)
+# are replaced by the layout_* ones; the others run again, to show that the entries added
+# change nothing for the first six.
+COMMON_LAYOUT_SCENARIOS = [
+    "contrast_persist",
+    "debounce_batch",
+    "range",
+    "always",
+    "load",
+    "boot_apply",
+    "restore",
+    "reset",
+    "command",
+]
+CENTRAL_LAYOUT_SCENARIOS = COMMON_LAYOUT_SCENARIOS + [
+    "central_applies_left",
+    "layout_defaults",
+    "layout_range",
+    "layout_event",
+    "layout_persist",
+    "layout_load",
+    "layout_sync",
+    "layout_command",
+]
+PERIPHERAL_LAYOUT_SCENARIOS = [
+    "peripheral",
+    "peripheral_boot",
+    "layout_defaults",
+    "layout_peripheral",
+    "layout_peripheral_boot",
+]
 
 
 def write_shims(directory):
@@ -151,8 +228,18 @@ def main():
         write_shims(directory / "stubs")
         central = build("test_central", CENTRAL_DEFINES, directory)
         peripheral = build("test_peripheral", PERIPHERAL_DEFINES, directory)
+        central_layout = build(
+            "test_central_layout",
+            CENTRAL_DEFINES + LAYOUT_DEFINES + LEFT_WIDGET_DEFINES,
+            directory,
+        )
+        peripheral_layout = build(
+            "test_peripheral_layout", PERIPHERAL_DEFINES + LAYOUT_DEFINES, directory
+        )
         failed = run(central, CENTRAL_SCENARIOS)
         failed += run(peripheral, PERIPHERAL_SCENARIOS)
+        failed += run(central_layout, CENTRAL_LAYOUT_SCENARIOS)
+        failed += run(peripheral_layout, PERIPHERAL_LAYOUT_SCENARIOS)
     if failed:
         raise SystemExit("display settings tests failed: " + ", ".join(failed))
     print("display settings tests passed")

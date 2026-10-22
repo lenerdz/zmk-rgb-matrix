@@ -16,8 +16,9 @@
  * a time, every slot the peripheral paints whose live colour differs from what the
  * peripheral is known to hold. An edit made later queues that phase again.
  *
- * The display settings (display_settings.c) go last, one command per setting, and
- * a change made later queues just that phase again.
+ * The display settings (display_settings.c) go last, one command per setting that
+ * the peripheral does not hold yet (the central remembers what it sent each one),
+ * and a change made later queues just that phase again.
  *
  * Central only; the trigger is a poll, as there is no central-side "peripheral
  * connected" event.
@@ -94,8 +95,12 @@ struct kp_rgb_sync_source {
    * completes. A change of active effect away from it re-queues a push. */
   uint16_t synced_effect;
 #if KP_RGB_SYNC_HAS_DISPLAY
-  /* The next display setting to push in the display phase. */
+  /* Where the display phase looks for the next setting to push. */
   uint8_t display_index;
+  /* The value the source is known to hold for each entry of the display
+   * settings table, KP_DISPLAY_SYNC_UNKNOWN until one has been sent in this
+   * connection. */
+  int32_t display_shadow[KP_DISPLAY_SETTING_CAP];
 #endif
   /* Snapshot taken under kp_rgb_matrix_lock() at KP_RGB_SYNC_SELECT. */
   uint16_t effect_index;
@@ -124,6 +129,15 @@ static volatile bool kp_rgb_sync_maps_ready;
 #if KP_RGB_SYNC_HAS_DISPLAY
 static struct k_work kp_rgb_sync_display_work;
 static volatile bool kp_rgb_sync_display_ready;
+
+/* Nothing is known about what the source holds: it is new, or it may have
+ * rebooted, so every setting it applies is sent again. */
+static void kp_rgb_sync_forget_display(struct kp_rgb_sync_source *st) {
+  for (size_t i = 0; i < ARRAY_SIZE(st->display_shadow); i++) {
+    st->display_shadow[i] = KP_DISPLAY_SYNC_UNKNOWN;
+  }
+  st->display_index = 0;
+}
 #endif
 
 /* Registration order is priority order, and a NULL get_status means "always
@@ -161,6 +175,9 @@ static void kp_rgb_sync_refresh(void) {
 #if KP_RGB_SYNC_HAS_MAPS
       kp_rgb_sync_sources[i].maps_primed = false;
 #endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+      kp_rgb_sync_forget_display(&kp_rgb_sync_sources[i]);
+#endif
     }
   }
 
@@ -196,6 +213,9 @@ static void kp_rgb_sync_refresh(void) {
 #if KP_RGB_SYNC_HAS_MAPS
       st->maps_primed = false; /* its maps are reset before anything is pushed */
 #endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+      kp_rgb_sync_forget_display(st);
+#endif
       /* A peripheral is marked connected before its GATT characteristics are
        * discovered, and the split worker silently drops commands in that
        * window. */
@@ -210,6 +230,9 @@ static void kp_rgb_sync_refresh(void) {
       st->synced_effect = KP_RGB_SYNC_NO_EFFECT;
 #if KP_RGB_SYNC_HAS_MAPS
       st->maps_primed = false; /* it may have rebooted */
+#endif
+#if KP_RGB_SYNC_HAS_DISPLAY
+      kp_rgb_sync_forget_display(st);
 #endif
     } else if (present[s] && st->seen && !st->pending &&
                st->synced_effect != active) {
@@ -321,17 +344,20 @@ static enum kp_rgb_sync_emit kp_rgb_sync_emit_maps(uint8_t source,
 #endif /* KP_RGB_SYNC_HAS_MAPS */
 
 #if KP_RGB_SYNC_HAS_DISPLAY
-/* The display phase: every display setting, one per call. The values are read
- * afresh on every call. */
+/* The display phase: the settings the source does not hold, one per call. The
+ * values are read afresh on every call, so a change made while this runs is
+ * picked up. */
 static enum kp_rgb_sync_emit kp_rgb_sync_emit_display(uint8_t source,
                                                       struct kp_rgb_sync_source *st) {
   uint32_t param1, param2;
+  int next = kp_display_sync_next(st->display_index, st->display_shadow);
 
-  if (kp_display_sync_get(st->display_index, &param1, &param2)) {
+  if (next >= 0 && kp_display_sync_command((size_t)next, &param1, &param2)) {
     if (!kp_rgb_sync_send(source, param1, param2)) {
       return KP_RGB_SYNC_EMIT_RETRY;
     }
-    st->display_index++;
+    st->display_shadow[next] = (int32_t)param2;
+    st->display_index = (uint8_t)(next + 1);
     return KP_RGB_SYNC_EMIT_SENT;
   }
 

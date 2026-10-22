@@ -56,7 +56,7 @@
  * record, not in the RGB state.
  *
  * param1 holds the command in its low 12 bits and the setting id in bits 12 to
- * 15 (RGB_DISPLAY_PARAM1 in src/display_settings.h); param2 is the value, an
+ * 19 (RGB_DISPLAY_PARAM1 in src/display_settings.h); param2 is the value, an
  * int32 carried as a uint32. */
 #define RGB_DISPLAY_SET_CMD 0x106
 

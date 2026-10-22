@@ -154,7 +154,7 @@ struct record {
   size_t len;
   bool used;
 };
-struct record g_store[32];
+struct record g_store[64];
 int g_save_calls, g_delete_calls;
 
 int settings_save_one(const char *name, const void *value, size_t val_len) {
@@ -196,3 +196,12 @@ int g_kicks;
 #if defined(CONFIG_KEYPAW_RGB_SPLIT_SYNC)
 void kp_rgb_sync_display_kick(void) { g_kicks++; }
 #endif
+
+/* ---- events --------------------------------------------------------------- */
+int g_layout_events, g_layout_last_id = -1;
+
+int raise_zmk_display_settings_changed(struct zmk_display_settings_changed ev) {
+  g_layout_events++;
+  g_layout_last_id = ev.id;
+  return 0;
+}

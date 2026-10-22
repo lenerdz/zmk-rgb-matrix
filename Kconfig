@@ -297,6 +297,35 @@ config KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS
       CONFIG_ZMK_SETTINGS_SAVE_DEBOUNCE (60 s by default) is too long here: turning
       the keyboard off within that time would lose the change.
 
+config KEYPAW_OLED_LAYOUT
+    bool "OLED layout: which widgets the screens draw, and where"
+    default n
+    depends on KEYPAW_DISPLAY_SETTINGS
+    depends on NICE_OLED_ON
+    depends on NICE_OLED_WIDGET_STATUS
+    help
+      Adds to the display settings the layout of the zmk-nice-oled screens: for
+      each widget, whether it is drawn and where (x and y on its canvas), and,
+      on the right screen, which animation or image is shown and how long one
+      cycle takes. ZMK Studio edits them like the other display settings (the
+      ids 16 and up, include/zmk/display_settings.h); the central pushes the
+      ones of the right screen to its peripheral, and each half keeps them in its
+      own flash.
+
+      The defaults are what the build says, so the screens look as they did
+      without this option until something is changed: the positions come from
+      the CONFIG_NICE_OLED_WIDGET_*_CUSTOM_X and _Y options, and the animation
+      from CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_*. Set the options of the
+      right screen in the configuration of both halves: the central needs them
+      for the defaults it lists and compares, the peripheral for its own.
+
+      Needs the fork of zmk-nice-oled that reads these settings
+      (lenerdz/zmk-nice-oled): the widgets draw again when the event
+      zmk_display_settings_changed (zmk/events/display_settings_changed.h) is
+      raised. With another zmk-nice-oled the settings are kept and synced but
+      change nothing on the screens. Has to be on in the build of both halves.
+      For the OLED screens (the nice_oled shield), not for the e-paper ones.
+
 config KEYPAW_DISPLAY_SETTINGS_STUDIO
     bool "Edit the display settings from ZMK Studio"
     default y

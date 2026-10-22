@@ -50,15 +50,21 @@ extern int g_log_warnings;
 #define LOG_ERR(...) LOG_WRN(__VA_ARGS__)
 
 /* ---- atomic --------------------------------------------------------------- */
-typedef long atomic_t;
+typedef unsigned long atomic_t;
 typedef long atomic_val_t;
-static inline void atomic_set_bit(atomic_t *t, int bit) { *t |= (1L << bit); }
+/* `long` is 32 bits on some hosts: size the words by the type. */
+#define ATOMIC_BITS (sizeof(atomic_t) * 8)
+#define ATOMIC_BITMAP_SIZE(num_bits) (((num_bits) + ATOMIC_BITS - 1) / ATOMIC_BITS)
+#define ATOMIC_DEFINE(name, num_bits) atomic_t name[ATOMIC_BITMAP_SIZE(num_bits)]
+static inline void atomic_set_bit(atomic_t *t, int bit) {
+  t[bit / ATOMIC_BITS] |= ((atomic_t)1 << (bit % ATOMIC_BITS));
+}
 static inline bool atomic_test_and_clear_bit(atomic_t *t, int bit) {
-  bool was = (*t >> bit) & 1;
-  *t &= ~(1L << bit);
+  atomic_t mask = (atomic_t)1 << (bit % ATOMIC_BITS);
+  bool was = (t[bit / ATOMIC_BITS] & mask) != 0;
+  t[bit / ATOMIC_BITS] &= ~mask;
   return was;
 }
-static inline void atomic_set(atomic_t *t, atomic_val_t v) { *t = v; }
 
 /* ---- kernel: a fake clock and fake work queues ----------------------------- */
 typedef struct {
@@ -171,3 +177,9 @@ typedef struct {
 extern int (*g_listener_cb)(const zmk_event_t *);
 #define ZMK_LISTENER(name, cb) int (*g_listener_cb)(const zmk_event_t *) = cb
 #define ZMK_SUBSCRIPTION(name, ev) extern int g_unused_subscription_##name##ev
+
+/* zmk/events/display_settings_changed.h */
+struct zmk_display_settings_changed {
+  uint8_t id;
+};
+int raise_zmk_display_settings_changed(struct zmk_display_settings_changed ev);

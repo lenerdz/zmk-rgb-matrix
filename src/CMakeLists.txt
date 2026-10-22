@@ -81,6 +81,10 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_SPLIT_SYNC rgb_split_sync.c)
 # split sync above.
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_DISPLAY_SETTINGS display_settings.c)
 
+# The event that tells the screen widgets that the OLED layout changed is declared
+# in include/zmk/events/display_settings_changed.h; display_settings.c raises it.
+zephyr_library_sources_ifdef(CONFIG_KEYPAW_OLED_LAYOUT events/display_settings_changed.c)
+
 # ZMK Studio access to the colour maps and to the display settings: central-only,
 # because ZMK Studio is. studio_rpc.c and studio_rpc_display.c include the
 # headers that ZMK generates from the .proto files (<build>/proto/zmk/*.pb.h) as

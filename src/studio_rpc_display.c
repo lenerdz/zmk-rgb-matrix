@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <stdint.h>
 
+#include <pb_encode.h>
+
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
@@ -30,32 +32,39 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define KEYMAP_RESPONSE(type, ...) ZMK_RPC_RESPONSE(keymap, type, __VA_ARGS__)
 
-/* The wire array is fixed (keymap.options.in); the firmware must fit it. */
-BUILD_ASSERT(KP_DISPLAY_SETTING_COUNT <=
-                 sizeof(((zmk_keymap_DisplayInfo *)0)->settings) /
-                     sizeof(zmk_keymap_DisplaySetting),
-             "more display settings than the DisplayInfo of the protocol can "
-             "list: raise settings max_count in zmk-studio-messages");
+/* DisplayInfo.settings has no max_count in keymap.options.in, so nanopb makes
+ * it a callback: the list can be as long as the firmware's table, and the
+ * response does not grow the union that ZMK Studio's thread keeps on its stack. */
+static bool encode_display_settings(pb_ostream_t *stream, const pb_field_t *field,
+                                    void *const *arg) {
+  ARG_UNUSED(arg);
 
-static void fill_display_info(zmk_keymap_DisplayInfo *info) {
-  size_t count = 0;
-
-  for (size_t i = 0; i < kp_display_setting_count() &&
-                     i < sizeof(info->settings) / sizeof(info->settings[0]);
-       i++) {
+  for (size_t i = 0; i < kp_display_setting_count(); i++) {
     struct kp_display_setting_info setting;
 
     if (kp_display_setting_info(i, &setting) < 0) {
       break;
     }
-    info->settings[count].id = setting.id;
-    info->settings[count].value = setting.value;
-    info->settings[count].min = setting.min;
-    info->settings[count].max = setting.max;
-    info->settings[count].default_value = setting.default_value;
-    count++;
+
+    zmk_keymap_DisplaySetting msg = zmk_keymap_DisplaySetting_init_zero;
+
+    msg.id = setting.id;
+    msg.value = setting.value;
+    msg.min = setting.min;
+    msg.max = setting.max;
+    msg.default_value = setting.default_value;
+
+    if (!pb_encode_tag_for_field(stream, field) ||
+        !pb_encode_submessage(stream, &zmk_keymap_DisplaySetting_msg, &msg)) {
+      return false;
+    }
   }
-  info->settings_count = (pb_size_t)count;
+  return true;
+}
+
+static void fill_display_info(zmk_keymap_DisplayInfo *info) {
+  info->settings.funcs.encode = encode_display_settings;
+  info->settings.arg = NULL;
 }
 
 static zmk_studio_Response get_display_info(const zmk_studio_Request *req) {
