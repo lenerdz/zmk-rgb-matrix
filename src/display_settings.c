@@ -250,7 +250,8 @@ static const struct kp_display_def kp_display_defs[] = {
 /* The ids travel in 8 bits (RGB_DISPLAY_PARAM1). */
 BUILD_ASSERT(KP_OLED_L_WPM_GRAPH_Y < 256,
              "display setting ids have to be below 256");
-/* DisplayInfo of the protocol lists at most KP_DISPLAY_SETTING_CAP. */
+/* The bitmap of changes and the copy of a peripheral's values have
+ * KP_DISPLAY_SETTING_CAP entries. */
 BUILD_ASSERT(ARRAY_SIZE(kp_display_defs) <= KP_DISPLAY_SETTING_CAP,
              "more display settings than KP_DISPLAY_SETTING_CAP "
              "(zmk/display_settings.h)");

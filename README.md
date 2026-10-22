@@ -544,12 +544,14 @@ to the peripheral half.
 
 ## Display (OLED) settings
 
-`CONFIG_KEYPAW_DISPLAY_SETTINGS` (off by default) keeps a short list of numbered
+`CONFIG_KEYPAW_DISPLAY_SETTINGS` (off by default) keeps a list of numbered
 integer settings for the screens: the contrast of each half, when the screen goes
-off, and the light toast of the [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled)
-fork. Each half applies them at once and keeps them in its own flash, the central
-copies them to the peripheral, and [ZMK Studio](https://zmk.dev/docs/features/studio)
-edits them (see [ZMK Studio requests for the display](#zmk-studio-requests-for-the-display)).
+off, the light toast of the [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled)
+fork and, with `CONFIG_KEYPAW_OLED_LAYOUT`, which widgets the screens draw and where
+(see [OLED layout](#oled-layout)). Each half applies them at once and keeps them in
+its own flash, the central copies them to the peripheral, and
+[ZMK Studio](https://zmk.dev/docs/features/studio) edits them (see
+[ZMK Studio requests for the display](#zmk-studio-requests-for-the-display)).
 A widget reads one with `kp_display_setting_get()`
 (`include/zmk/display_settings.h`).
 
@@ -567,6 +569,9 @@ otherwise), because the module turns the screen off itself.
 | 4 | Seconds without activity before the screen goes off | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) to 3600 | 60 | counted from the last activity; used when setting 3 is not 0 |
 | 5 | Toast | 0 or 1 | 1 | the light toast of zmk-nice-oled |
 | 6 | Toast duration (ms) | 500 to 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | how long the toast stays on screen |
+
+The settings with the ids 16 and up are the layout of the screens, described in
+[OLED layout](#oled-layout).
 
 **Screen off.** ZMK's own option cannot tell USB from battery, so the module turns
 the screen off itself, with `display_blanking_on()`, and back on with
@@ -590,12 +595,125 @@ deletes them.
 
 **Split keyboards.** The copy to the peripheral is the last phase of the split sync,
 after the colour maps: one `RGB_DISPLAY_SET_CMD` per setting (`param1` holds the
-command in its low 12 bits and the setting id in bits 12 to 15, `param2` is the
-value as an int32), one command at a time, 50 ms apart, when the peripheral
-connects (or restarts) and whenever a setting changes. The peripheral applies the
-value and keeps it in its own flash, so its screen is right at boot, before the
-central connects. Both halves hold the six settings, and each half applies its own
-contrast.
+command in its low 12 bits and the setting id in bits 12 to 19, which is why every
+id stays below 256, and `param2` is the value as an int32), one command at a time,
+50 ms apart. The central sends a setting only when the peripheral does not hold its
+value yet: it remembers what it sent for each one, so after a change only that
+setting travels. When the peripheral connects (or restarts) nothing is known about
+it, so every setting it applies is sent. The central never sends the settings of its
+own screen (the left contrast and, with the OLED layout, the widgets of the left
+screen). The peripheral applies the value and keeps it in its own flash, so its
+screen is right at boot, before the central connects. Both halves hold the six
+settings, and each half applies its own contrast. With the OLED layout, the central
+also holds the settings of both screens and the peripheral those of the right one.
+
+### OLED layout
+
+`CONFIG_KEYPAW_OLED_LAYOUT` (off by default; it needs `CONFIG_KEYPAW_DISPLAY_SETTINGS`,
+the `nice_oled` shield and its status widget, `CONFIG_NICE_OLED_WIDGET_STATUS`) adds
+to the settings the layout of the screens of the
+[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) fork: for each widget,
+whether it is drawn and where, and, on the right screen, which animation or image is
+shown and how long one cycle takes. They are settings like the six above (the ids 16
+and up), so everything said about those holds: a change is applied at once, kept in
+the flash of each half, copied to the peripheral and edited from ZMK Studio (the OLED
+tab of the [lenerdz/zmk-studio](https://github.com/lenerdz/zmk-studio) app is made for
+this). The option has to be on in the build of both halves, and it needs the fork of
+zmk-nice-oled that reads the settings: with another zmk-nice-oled the settings are
+kept and synced, but nothing changes on the screens. A widget reads a value with
+`kp_display_setting_get()` and the default of the build with
+`kp_display_setting_default()`.
+
+The defaults are what the build says, so the screens look as they did without the
+option until something is changed: the positions come from the
+`CONFIG_NICE_OLED_WIDGET_*_CUSTOM_X` and `_Y` options, and the animation from
+`CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_*`. The central lists and compares the
+settings of the right screen too, so set the options of the right screen in the
+configuration of both halves: the central needs them for the defaults it lists, the
+peripheral for its own.
+
+Each widget has a block of eight ids, at `16 + 8 * n`: `+0` is whether it is shown (0
+or 1, default 1), `+1` its x and `+2` its y, in pixels, from -160 to 320. The
+animation also has `+3`, its kind, and `+4`, its cycle time. A widget that the
+firmware was not built with has no entry in the list that ZMK Studio gets, and the
+peripheral has no entry for the left screen.
+
+| Ids | Screen | Widget | Settings | Listed when the build has |
+|---|---|---|---|---|
+| 16 to 20 | right | animation or still image | shown, x, y, kind, cycle time | no `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY` |
+| 24 to 26 | right | battery of the right half, as a percentage | shown, x, y | always |
+| 32 to 34 | right | Bluetooth icon (connected to the left half or not) | shown, x, y | always |
+| 41 and 42 | right | first line of the light toast (the second is 8 pixels below) | x, y | always; the toast itself is `CONFIG_NICE_OLED_WIDGET_LED_TOAST`, and whether it is shown is setting 5 |
+| 48 to 50 | left | USB or Bluetooth icon of the active output | shown, x, y | always |
+| 56 to 58 | left | battery: the icon, the percentage, or the two numbers of both halves | shown, x, y | always |
+| 64 to 66 | left | the five Bluetooth profile dots | shown, x, y | always |
+| 72 to 74 | left | number of the active Bluetooth profile | shown, x, y | always |
+| 80 to 82 | left | name of the active layer | shown, x, y | `CONFIG_NICE_OLED_WIDGET_LAYER` |
+| 88 to 90 | left | WPM gauge and its needle (x and y are the gauge) | shown, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_SPEEDOMETER` |
+| 96 to 98 | left | WPM number | shown, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_NUMBER` |
+| 104 to 106 | left | WPM graph (x and y are the grid under it) | shown, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_GRAPH`, and neither the bongo cat, the luna dog nor the fixed modifier indicators |
+
+**Animation.** The kind (id 19) is one of these, offered in this order by the app:
+
+| Value | Kind | Frames | Time of one cycle of its own |
+|---|---|---|---|
+| 0 | crystal (the `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_GEM` of the build) | 16 | 960 ms |
+| 1 | cat | 8 | 960 ms |
+| 2 | head | 16 | 4800 ms |
+| 3 | spaceman | 20 | 4800 ms |
+| 4 | pokemon | 48 | 10000 ms |
+| 5 | vim (still image) | 1 | none |
+| 6 | vip_marcos (still image) | 1 | none |
+
+The default kind is the one the build chose: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
+`_CAT`, `_SPACEMAN` or `_POKEMON` (the first one that is on, in that order, and the
+crystal if none is), or, without an animation,
+`CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` or `_VIP_MARCOS`. The cycle time
+(id 20) is 0, or from 100 to 60000 ms: 0 is the time that belongs to the animation (the
+one the build chose keeps `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_MS`), and a value
+from 1 to 99 counts as 100. A still image has no cycle. With the option on, zmk-nice-oled
+builds every animation in, so the choice can change while the keyboard is running.
+
+**Coordinates of the animation.** Every widget but one is drawn on a canvas of 68 x 160
+pixels, upright, which zmk-nice-oled rotates by 270 degrees before it goes to the
+128 x 32 panel. The panel shows only the strip x 0 to 31, y 32 to 159 of it, so x goes
+right and y goes down the way the screen is looked at on the desk. The animation (or
+the image) is the exception: its frames are already rotated, and the firmware places
+them on the rotated canvas, so its x and y are the corner of the picture on the
+landscape canvas, which is the upright one turned by 90 degrees. For a picture of
+height h whose upright corner is (u, v), the settings are x = 160 - v - h and y = u. A
+larger x moves the picture up, and a larger y moves it to the right. With the position
+of the build, x = 18 and y = -18, an animation of 68 x 69 pixels has its upright corner
+at u = -18, v = 73. The OLED tab of the app does this conversion; do it yourself only
+if you write the values some other way.
+
+**Drawing again.** The widgets read the values every time they draw, and the event
+`zmk_display_settings_changed` (`zmk/events/display_settings_changed.h`) tells them to
+draw again. Changes that follow one another within 20 ms make one event (restoring the
+defaults, or the central pushing the whole layout to a peripheral), and the event says
+only the last id of the burst, for the log: a listener reads the values it needs. It is
+also raised once after the saved settings are loaded at boot, because a widget that drew
+before that drew with the defaults. Listeners run in the thread of ZMK's event manager,
+so hand the drawing to the display work queue, the way the widgets of zmk-nice-oled do.
+
+**Not covered.** The bongo cat, the luna dog, the responsive bongo cat, the modifier and
+HID indicators, the raw HID widgets, the sleep art and the smart battery animation stay
+options of the build and are drawn where the build says. The e-paper screens (nice!view
+and the like) are not supported.
+
+**Cost.** Measured in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
+with the option on against off: the right half grows 68,520 bytes of flash (every
+animation is built in) and 560 bytes of RAM, and the left half 1,432 bytes of flash and
+224 bytes of RAM.
+
+**Status.** The table of the layout and its defaults (taken from the options of the
+Corne of that repository), the ranges, the change event, the flash records of the ids past
+the first 32, and the sync of only what the peripheral does not hold have host tests with a
+fake clock (`tests/unit/test_display_settings.py`, 43 runs); the display driver, the work
+queues and the settings backend are stand-ins there. The firmware of both halves builds in
+that CI. It has not been tried on a real keyboard yet: the widgets moving, the animation
+changing while the keyboard runs, the conversion of the coordinates of the animation, and
+the copy of the right screen to the peripheral half.
 
 ### ZMK Studio requests for the display
 
@@ -608,14 +726,18 @@ unlocked.
 
 | Request | Id | Answer | What it does |
 |---|---|---|---|
-| `get_display_info` | 106 | `DisplayInfo`: `settings` (up to 16), each with `id`, `value`, `min`, `max` and `default_value` | lists the settings |
+| `get_display_info` | 106 | `DisplayInfo`: `settings`, each with `id`, `value`, `min`, `max` and `default_value` | lists the settings |
 | `set_display_setting` | 107 | `OK`, `INVALID_ID` or `INVALID_VALUE` | sets one setting |
 | `restore_display_defaults` | 108 | `DisplayInfo`, already restored | puts every setting back to its default |
 
 There is no save or discard step, and no notification: a change is applied at
 once and written to flash a few seconds later. A client has to use the `min`, `max` and `default_value` that
 `get_display_info` reports, because they depend on the firmware (the lower limit
-of setting 4 is the idle timeout of the build). A firmware without these handlers
+of setting 4 is the idle timeout of the build, and the list itself changes with the
+options of the build: six settings, or more with the OLED layout). The list has no
+fixed size: `settings` is encoded by a callback, one entry at a time, so a firmware
+lists as many settings as it has (the module keeps at most 64, `KP_DISPLAY_SETTING_CAP`).
+A firmware without these handlers
 answers them with `RPC_NOT_FOUND`, which is how a client can tell that the
 feature is missing. ZMK Studio's "Restore Stock Settings" also puts the settings
 back to their defaults.
@@ -626,7 +748,8 @@ a fake clock (`tests/unit/test_display_settings.py`); the display driver, the wo
 queues and the settings backend are stand-ins there. It builds in the CI of
 [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried on
 a real keyboard yet: the contrast, the screen off in each mode, the copy to the
-peripheral half and the three requests.
+peripheral half and the three requests (the status of the OLED layout is in
+[OLED layout](#oled-layout)).
 
 ## Built-in components
 

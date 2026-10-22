@@ -121,8 +121,10 @@ enum kp_display_setting_id {
   KP_OLED_L_WPM_GRAPH_Y = 106,
 };
 
-/* The most settings the module lists (and the protocol can carry): the length of
- * DisplayInfo.settings in keymap.options.in of zmk-studio-messages. */
+/* The most settings the module keeps: the size of its bitmap of changes and of
+ * the copy the central holds of what a peripheral has. The protocol sets no
+ * limit of its own (DisplayInfo.settings is encoded by a callback, see
+ * studio_rpc_display.c). A build with more entries fails a BUILD_ASSERT. */
 #define KP_DISPLAY_SETTING_CAP 64
 
 /* The range of every x and y of the OLED layout. */

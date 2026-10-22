@@ -552,10 +552,12 @@ descarte e a cópia para a metade periférica.
 
 ## Configurações da tela (OLED)
 
-`CONFIG_KEYPAW_DISPLAY_SETTINGS` (desligada por padrão) mantém uma lista curta de
+`CONFIG_KEYPAW_DISPLAY_SETTINGS` (desligada por padrão) mantém uma lista de
 configurações inteiras numeradas para as telas: o contraste de cada metade,
-quando a tela apaga e o toast leve do fork
-[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled). Cada metade aplica as
+quando a tela apaga, o toast leve do fork
+[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) e, com
+`CONFIG_KEYPAW_OLED_LAYOUT`, quais widgets as telas desenham e onde (veja
+[Layout das telas OLED](#layout-das-telas-oled)). Cada metade aplica as
 configurações na hora e as guarda na sua própria flash, a central as copia para a
 periférica, e o [ZMK Studio](https://zmk.dev/docs/features/studio) as edita (veja
 [Requisições do ZMK Studio para a tela](#requisições-do-zmk-studio-para-a-tela)).
@@ -576,6 +578,9 @@ falha caso contrário), porque o módulo apaga a tela por conta própria.
 | 4 | Segundos sem atividade antes de apagar a tela | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) a 3600 | 60 | contados a partir da última atividade; usada quando a configuração 3 não é 0 |
 | 5 | Toast | 0 ou 1 | 1 | o toast leve do zmk-nice-oled |
 | 6 | Duração do toast (ms) | 500 a 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | por quanto tempo o toast fica na tela |
+
+As configurações com id 16 ou maior são o layout das telas, descrito em
+[Layout das telas OLED](#layout-das-telas-oled).
 
 **Apagar a tela.** A opção própria do ZMK não distingue USB de bateria, então o
 módulo apaga a tela por conta própria, com `display_blanking_on()`, e a acende de
@@ -600,11 +605,125 @@ neles. O "Restore Stock Settings" do ZMK Studio os apaga.
 **Teclados split.** A cópia para a periférica é a última fase da sincronização
 split, depois dos mapas de cores: um `RGB_DISPLAY_SET_CMD` por configuração
 (`param1` leva o comando nos 12 bits baixos e o id da configuração nos bits 12 a
-15, `param2` é o valor como int32), um comando por vez, com 50 ms entre eles,
-quando a periférica conecta (ou reinicia) e sempre que uma configuração muda. A
-periférica aplica o valor e o guarda na sua própria flash, então a tela dela já
+19, e é por isso que todo id fica abaixo de 256, e `param2` é o valor como int32),
+um comando por vez, com 50 ms entre eles. A central só envia uma configuração
+quando a periférica ainda não tem o valor dela: ela lembra o que enviou para cada
+uma, então depois de uma mudança só aquela configuração viaja. Quando a periférica
+conecta (ou reinicia) não se sabe nada sobre ela, então toda configuração que ela
+aplica é enviada. A central nunca envia as configurações da sua própria tela (o
+contraste da esquerda e, com o layout das telas OLED, os widgets da tela esquerda).
+A periférica aplica o valor e o guarda na sua própria flash, então a tela dela já
 está certa no boot, antes de a central conectar. As duas metades guardam as seis
-configurações, e cada metade aplica o seu próprio contraste.
+configurações, e cada metade aplica o seu próprio contraste. Com o layout das
+telas OLED, a central guarda também as configurações das duas telas e a periférica
+as da tela direita.
+
+### Layout das telas OLED
+
+`CONFIG_KEYPAW_OLED_LAYOUT` (desligada por padrão; precisa de
+`CONFIG_KEYPAW_DISPLAY_SETTINGS`, do shield `nice_oled` e do widget de status dele,
+`CONFIG_NICE_OLED_WIDGET_STATUS`) acrescenta às configurações o layout das telas do
+fork [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled): para cada widget,
+se ele é desenhado e onde, e, na tela direita, qual animação ou imagem aparece e
+quanto tempo dura um ciclo. São configurações como as seis acima (os ids 16 em
+diante), então tudo o que foi dito sobre elas vale: uma mudança é aplicada na hora,
+guardada na flash de cada metade, copiada para a periférica e editada pelo ZMK
+Studio (a aba OLED do app [lenerdz/zmk-studio](https://github.com/lenerdz/zmk-studio)
+foi feita para isso). A opção precisa estar ligada no build das duas metades, e
+precisa do fork do zmk-nice-oled que lê as configurações: com outro zmk-nice-oled as
+configurações são guardadas e sincronizadas, mas nada muda nas telas. Um widget lê um
+valor com `kp_display_setting_get()` e o padrão do build com
+`kp_display_setting_default()`.
+
+Os padrões são o que o build diz, então as telas ficam como estavam sem a opção até
+que algo seja mudado: as posições vêm das opções `CONFIG_NICE_OLED_WIDGET_*_CUSTOM_X`
+e `_Y`, e a animação vem de `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_*`. A
+central lista e compara também as configurações da tela direita, então defina as
+opções da tela direita na configuração das duas metades: a central precisa delas
+para os padrões que lista, a periférica para os seus.
+
+Cada widget tem um bloco de oito ids, em `16 + 8 * n`: `+0` diz se ele é mostrado (0
+ou 1, padrão 1), `+1` é o x dele e `+2` o y, em pixels, de -160 a 320. A animação
+tem também `+3`, o tipo dela, e `+4`, o tempo do ciclo. Um widget com o qual o
+firmware não foi compilado não tem entrada na lista que o ZMK Studio recebe, e a
+periférica não tem entradas da tela esquerda.
+
+| Ids | Tela | Widget | Configurações | Listado quando o build tem |
+|---|---|---|---|---|
+| 16 a 20 | direita | animação ou imagem parada | mostrar, x, y, tipo, tempo do ciclo | nenhum `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY` |
+| 24 a 26 | direita | bateria da metade direita, em porcentagem | mostrar, x, y | sempre |
+| 32 a 34 | direita | ícone de Bluetooth (conectado à metade esquerda ou não) | mostrar, x, y | sempre |
+| 41 e 42 | direita | primeira linha do toast das luzes (a segunda fica 8 pixels abaixo) | x, y | sempre; o toast em si é `CONFIG_NICE_OLED_WIDGET_LED_TOAST`, e se ele é mostrado é a configuração 5 |
+| 48 a 50 | esquerda | ícone de USB ou Bluetooth da saída ativa | mostrar, x, y | sempre |
+| 56 a 58 | esquerda | bateria: o ícone, a porcentagem ou os dois números das duas metades | mostrar, x, y | sempre |
+| 64 a 66 | esquerda | os cinco pontos dos perfis Bluetooth | mostrar, x, y | sempre |
+| 72 a 74 | esquerda | número do perfil Bluetooth ativo | mostrar, x, y | sempre |
+| 80 a 82 | esquerda | nome da camada ativa | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_LAYER` |
+| 88 a 90 | esquerda | velocímetro de WPM e o ponteiro dele (x e y são os do velocímetro) | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_SPEEDOMETER` |
+| 96 a 98 | esquerda | número de WPM | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_NUMBER` |
+| 104 a 106 | esquerda | gráfico de WPM (x e y são os da grade embaixo dele) | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_GRAPH`, e nem o bongo cat, nem o cachorro luna, nem os indicadores fixos de modificadores |
+
+**Animação.** O tipo (id 19) é um destes, oferecidos nesta ordem pelo app:
+
+| Valor | Tipo | Quadros | Tempo próprio de um ciclo |
+|---|---|---|---|
+| 0 | crystal (o `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_GEM` do build) | 16 | 960 ms |
+| 1 | cat | 8 | 960 ms |
+| 2 | head | 16 | 4800 ms |
+| 3 | spaceman | 20 | 4800 ms |
+| 4 | pokemon | 48 | 10000 ms |
+| 5 | vim (imagem parada) | 1 | nenhum |
+| 6 | vip_marcos (imagem parada) | 1 | nenhum |
+
+O tipo padrão é o que o build escolheu: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
+`_CAT`, `_SPACEMAN` ou `_POKEMON` (a primeira que estiver ligada, nessa ordem, e o
+crystal se nenhuma estiver) ou, sem animação,
+`CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` ou `_VIP_MARCOS`. O tempo do ciclo
+(id 20) é 0, ou de 100 a 60000 ms: 0 é o tempo que pertence à animação (a que o build
+escolheu mantém `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_MS`), e um valor de 1 a
+99 conta como 100. Uma imagem parada não tem ciclo. Com a opção ligada, o zmk-nice-oled
+compila todas as animações, então a escolha pode mudar com o teclado funcionando.
+
+**Coordenadas da animação.** Todo widget menos um é desenhado em um canvas de 68 x 160
+pixels, em pé, que o zmk-nice-oled gira em 270 graus antes de enviar ao painel de
+128 x 32. O painel mostra só a faixa x 0 a 31, y 32 a 159 dele, então x vai para a
+direita e y vai para baixo do jeito que a tela é vista sobre a mesa. A animação (ou a
+imagem) é a exceção: os quadros dela já estão girados, e o firmware os coloca no canvas
+girado, então o x e o y dela são o canto da imagem no canvas deitado, que é o canvas em
+pé girado em 90 graus. Para uma imagem de altura h cujo canto em pé é (u, v), as
+configurações são x = 160 - v - h e y = u. Um x maior move a imagem para cima, e um y
+maior a move para a direita. Com a posição do build, x = 18 e y = -18, uma animação de
+68 x 69 pixels tem o canto em pé em u = -18, v = 73. A aba OLED do app faz essa
+conversão; faça você mesmo só se escrever os valores de outra forma.
+
+**Desenhar de novo.** Os widgets leem os valores toda vez que desenham, e o evento
+`zmk_display_settings_changed` (`zmk/events/display_settings_changed.h`) manda que
+desenhem de novo. Mudanças que se seguem em até 20 ms formam um evento (restaurar os
+padrões, ou a central enviando o layout inteiro a uma periférica), e o evento diz só o
+último id do grupo, para o log: um ouvinte lê os valores de que precisa. Ele é levantado
+também uma vez depois que as configurações salvas são carregadas no boot, porque um
+widget que desenhou antes disso desenhou com os padrões. Os ouvintes rodam na thread do
+gerenciador de eventos do ZMK, então entregue o desenho à fila de trabalho do display,
+do jeito que os widgets do zmk-nice-oled fazem.
+
+**Fora do escopo.** O bongo cat, o cachorro luna, o bongo cat responsivo, os
+indicadores de modificadores e de HID, os widgets de HID bruto, a arte de repouso e a
+animação de bateria inteligente continuam sendo opções do build e são desenhados onde o
+build diz. As telas e-paper (nice!view e parecidas) não são suportadas.
+
+**Custo.** Medido no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
+com a opção ligada contra desligada: a metade direita cresce 68.520 bytes de flash (todas
+as animações são compiladas) e 560 bytes de RAM, e a metade esquerda 1.432 bytes de flash
+e 224 bytes de RAM.
+
+**Situação.** A tabela do layout e os padrões dela (tirados das opções do Corne daquele
+repositório), as faixas, o evento de mudança, os registros na flash dos ids além dos
+32 primeiros e a sincronização só do que a periférica não tem possuem testes no
+computador com um relógio falso (`tests/unit/test_display_settings.py`, 43 execuções); o
+driver do display, as filas de trabalho e o backend de settings são substitutos ali. O
+firmware das duas metades compila naquele CI. Ainda não foi experimentado em um teclado
+real: os widgets se movendo, a animação mudando com o teclado funcionando, a conversão
+das coordenadas da animação e a cópia da tela direita para a metade periférica.
 
 ### Requisições do ZMK Studio para a tela
 
@@ -618,14 +737,18 @@ teclado desbloqueado.
 
 | Requisição | Id | Resposta | O que faz |
 |---|---|---|---|
-| `get_display_info` | 106 | `DisplayInfo`: `settings` (até 16), cada uma com `id`, `value`, `min`, `max` e `default_value` | lista as configurações |
+| `get_display_info` | 106 | `DisplayInfo`: `settings`, cada uma com `id`, `value`, `min`, `max` e `default_value` | lista as configurações |
 | `set_display_setting` | 107 | `OK`, `INVALID_ID` ou `INVALID_VALUE` | define uma configuração |
 | `restore_display_defaults` | 108 | `DisplayInfo`, já restaurado | devolve todas as configurações ao padrão |
 
 Não há etapa de salvar nem de descartar, e não há notificação: uma mudança é
 aplicada na hora e gravada na flash alguns segundos depois. O cliente precisa usar os `min`, `max` e
 `default_value` que `get_display_info` informa, porque eles dependem do firmware (o
-limite inferior da configuração 4 é o tempo de ociosidade do build). Um firmware
+limite inferior da configuração 4 é o tempo de ociosidade do build, e a própria lista
+muda com as opções do build: seis configurações, ou mais com o layout das telas OLED).
+A lista não tem tamanho fixo: `settings` é codificada por um callback, uma entrada por
+vez, então um firmware lista quantas configurações tiver (o módulo guarda no máximo 64,
+`KP_DISPLAY_SETTING_CAP`). Um firmware
 sem esses handlers responde `RPC_NOT_FOUND` a elas, e é assim que um cliente
 descobre que o recurso não existe. O "Restore Stock Settings" do ZMK Studio também
 devolve as configurações ao padrão.
@@ -636,7 +759,8 @@ computador com um relógio falso (`tests/unit/test_display_settings.py`); o driv
 display, as filas de trabalho e o backend de settings são substitutos ali. Compila no
 CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi
 experimentado em um teclado real: o contraste, a tela apagando em cada modo, a cópia
-para a metade periférica e as três requisições.
+para a metade periférica e as três requisições (a situação do layout das telas OLED
+está em [Layout das telas OLED](#layout-das-telas-oled)).
 
 ## Componentes embutidos
 
