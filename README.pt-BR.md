@@ -624,8 +624,9 @@ as da tela direita.
 `CONFIG_KEYPAW_DISPLAY_SETTINGS`, do shield `nice_oled` e do widget de status dele,
 `CONFIG_NICE_OLED_WIDGET_STATUS`) acrescenta às configurações o layout das telas do
 fork [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled): para cada widget,
-se ele é desenhado e onde, e, na tela direita, qual animação ou imagem aparece e
-quanto tempo dura um ciclo. São configurações como as seis acima (os ids 16 em
+se ele é desenhado e onde, e, na tela direita, qual animação ou imagem aparece,
+quanto tempo dura um ciclo, como a imagem é girada, qual pedaço dela aparece e como
+ela se mistura com os widgets. São configurações como as seis acima (os ids 16 em
 diante), então tudo o que foi dito sobre elas vale: uma mudança é aplicada na hora,
 guardada na flash de cada metade, copiada para a periférica e editada pelo ZMK
 Studio (a aba OLED do app [lenerdz/zmk-studio](https://github.com/lenerdz/zmk-studio)
@@ -644,13 +645,16 @@ para os padrões que lista, a periférica para os seus.
 
 Cada widget tem um bloco de oito ids, em `16 + 8 * n`: `+0` diz se ele é mostrado (0
 ou 1, padrão 1), `+1` é o x dele e `+2` o y, em pixels, de -160 a 320. A animação
-tem também `+3`, o tipo dela, e `+4`, o tempo do ciclo. Um widget com o qual o
-firmware não foi compilado não tem entrada na lista que o ZMK Studio recebe, e a
+tem também `+3`, o tipo dela, e `+4`, o tempo do ciclo. A imagem precisa de mais
+quatro configurações, que não cabem nos três ids que sobram no bloco dela (21 a 23):
+os ids 112 a 115 (veja "Girar, recortar e misturar a imagem" abaixo). Um widget com o
+qual o firmware não foi compilado não tem entrada na lista que o ZMK Studio recebe, e a
 periférica não tem entradas da tela esquerda.
 
 | Ids | Tela | Widget | Configurações | Listado quando o build tem |
 |---|---|---|---|---|
 | 16 a 20 | direita | animação ou imagem parada | mostrar, x, y, tipo, tempo do ciclo | nenhum `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY` |
+| 112 a 115 | direita | a mesma animação ou imagem parada | giro, mistura, canto do pedaço, tamanho do pedaço | o mesmo que a animação |
 | 24 a 26 | direita | bateria da metade direita, em porcentagem | mostrar, x, y | sempre |
 | 32 a 34 | direita | ícone de Bluetooth (conectado à metade esquerda ou não) | mostrar, x, y | sempre |
 | 41 e 42 | direita | primeira linha do toast das luzes (a segunda fica 8 pixels abaixo) | x, y | sempre; o toast em si é `CONFIG_NICE_OLED_WIDGET_LED_TOAST`, e se ele é mostrado é a configuração 5 |
@@ -674,6 +678,32 @@ periférica não tem entradas da tela esquerda.
 | 4 | pokemon | 48 | 10000 ms |
 | 5 | vim (imagem parada) | 1 | nenhum |
 | 6 | vip_marcos (imagem parada) | 1 | nenhum |
+| 7 | equalizer | 16 | 1200 ms |
+| 8 | radar | 24 | 2400 ms |
+| 9 | heartbeat | 16 | 1600 ms |
+| 10 | rain (chuva digital) | 32 | 3200 ms |
+| 11 | cube (cubo de arame) | 16 | 1600 ms |
+| 12 | atom | 24 | 2400 ms |
+| 13 | helix | 16 | 1600 ms |
+| 14 | warp | 24 | 2400 ms |
+| 15 | sonar | 16 | 1600 ms |
+| 16 | bounce (bola quicando) | 24 | 1200 ms |
+| 17 | flame | 16 | 1200 ms |
+| 18 | mountains (imagem parada) | 1 | nenhum |
+| 19 | skyline (imagem parada) | 1 | nenhum |
+| 20 | circuit (imagem parada) | 1 | nenhum |
+| 21 | alien (imagem parada) | 1 | nenhum |
+| 22 | heart (imagem parada) | 1 | nenhum |
+| 23 | keyboard (imagem parada) | 1 | nenhum |
+| 24 | pulsar (imagem parada) | 1 | nenhum |
+| 25 | rocket (imagem parada) | 1 | nenhum |
+
+Os tipos 7 a 25 são as imagens que o `scripts/pictures/make_pictures.py` do zmk-nice-oled
+desenha, todas com 32 pixels de largura (a largura do painel); o README dele ("Novas
+imagens da tela direita") as descreve. O número de um tipo é o que o teclado guarda na
+flash dele, então uma imagem só é acrescentada no fim desta lista, com o mesmo nome e
+número em `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) e na lista de
+imagens do zmk-nice-oled, e `KP_OLED_ANIM_KIND_COUNT` aumenta.
 
 O tipo padrão é o que o build escolheu: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
 `_CAT`, `_SPACEMAN` ou `_POKEMON` (a primeira que estiver ligada, nessa ordem, e o
@@ -690,11 +720,36 @@ pixels, em pé, que o zmk-nice-oled gira em 270 graus antes de enviar ao painel 
 direita e y vai para baixo do jeito que a tela é vista sobre a mesa. A animação (ou a
 imagem) é a exceção: os quadros dela já estão girados, e o firmware os coloca no canvas
 girado, então o x e o y dela são o canto da imagem no canvas deitado, que é o canvas em
-pé girado em 90 graus. Para uma imagem de altura h cujo canto em pé é (u, v), as
+pé girado em 90 graus. Para uma imagem de altura h (como ela é vista, depois do giro da
+configuração 112) cujo canto em pé é (u, v), as
 configurações são x = 160 - v - h e y = u. Um x maior move a imagem para cima, e um y
 maior a move para a direita. Com a posição do build, x = 18 e y = -18, uma animação de
 68 x 69 pixels tem o canto em pé em u = -18, v = 73. A aba OLED do app faz essa
 conversão; faça você mesmo só se escrever os valores de outra forma.
+
+**Girar, recortar e misturar a imagem.** Mais quatro configurações, nos ids 112 a 115,
+dizem como a imagem é colocada no canvas. Elas são listadas junto com a animação e só
+significam algo na tela direita:
+
+| Id | Configuração | Faixa | Padrão | O que faz |
+|---|---|---|---|---|
+| 112 | Giro | 0 a 3 | 0 | quartos de volta no sentido horário, como a imagem é vista |
+| 113 | Mistura | 0 ou 1 | 1 | como um pixel aceso da imagem se mistura com o que os widgets desenharam por baixo: 0 (`KP_OLED_MIX_ADD`) acende o pixel seja qual for o que havia ali, então um widget se perde onde a imagem é clara; 1 (`KP_OLED_MIX_INVERT`) inverte o que havia ali, então um widget sobre uma parte clara da imagem aparece em reverso e continua legível |
+| 114 | Canto do pedaço | 0 a 65535 | 0 | `x \| y << 8`: o canto do pedaço da imagem que aparece, em pixels da imagem como ela é vista (depois do giro); um canto além da imagem é tomado como o último pixel dela |
+| 115 | Tamanho do pedaço | 0 a 65535 | 0 | `w \| h << 8`: uma largura ou uma altura 0 é a imagem inteira, e o que passa da imagem é cortado |
+
+O pedaço são duas configurações de 8 bits cada, para que uma mudança do pedaço seja uma
+escrita: ele começa no máximo 255 pixels da esquerda ou do topo, e tem no máximo 255
+pixels de largura e de altura. A posição da animação (ids 17 e 18) é o canto da imagem
+**inteira** depois do giro, e um pedaço só esconde o resto dela, então a imagem fica onde
+está quando o pedaço muda. Um giro não muda a posição: com o mesmo x e y o canto inferior
+esquerdo da imagem, como ela é vista, fica onde estava, e a aba OLED do app envia uma
+posição nova com o giro, para girar a imagem em torno do centro dela. Só a imagem gira:
+os widgets de texto são desenhados com fontes que não podem ser giradas. O
+zmk-nice-oled coloca a imagem no canvas depois dos widgets e depois que o canvas foi
+girado para o painel, e é por isso que um widget pode ficar sobre ela (veja "Imagem no
+canvas: girar, recortar e misturar" no
+[README dele](https://github.com/lenerdz/zmk-nice-oled#picture-on-the-canvas-turn-crop-and-mix)).
 
 **Desenhar de novo.** Os widgets leem os valores toda vez que desenham, e o evento
 `zmk_display_settings_changed` (`zmk/events/display_settings_changed.h`) manda que
@@ -712,18 +767,23 @@ animação de bateria inteligente continuam sendo opções do build e são desen
 build diz. As telas e-paper (nice!view e parecidas) não são suportadas.
 
 **Custo.** Medido no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-com a opção ligada contra desligada: a metade direita cresce 68.520 bytes de flash (todas
-as animações são compiladas) e 560 bytes de RAM, e a metade esquerda 1.432 bytes de flash
-e 224 bytes de RAM.
+com a opção ligada contra desligada: a metade direita cresce 140.036 bytes de flash
+(todas as animações e imagens são compiladas: 64.064 bytes delas são as 19 imagens dos
+tipos 7 a 25, e o resto é o código que coloca a imagem no canvas) e 616 bytes de RAM, e
+a metade esquerda 1.512 bytes de flash e 240 bytes de RAM.
 
 **Situação.** A tabela do layout e os padrões dela (tirados das opções do Corne daquele
-repositório), as faixas, o evento de mudança, os registros na flash dos ids além dos
-32 primeiros e a sincronização só do que a periférica não tem possuem testes no
-computador com um relógio falso (`tests/unit/test_display_settings.py`, 43 execuções); o
-driver do display, as filas de trabalho e o backend de settings são substitutos ali. O
-firmware das duas metades compila naquele CI. Ainda não foi experimentado em um teclado
-real: os widgets se movendo, a animação mudando com o teclado funcionando, a conversão
-das coordenadas da animação e a cópia da tela direita para a metade periférica.
+repositório), as faixas (as do giro, da mistura e do pedaço também), o evento de
+mudança, os registros na flash dos ids além dos 32 primeiros e a sincronização só do que
+a periférica não tem possuem testes no computador com um relógio falso
+(`tests/unit/test_display_settings.py`, 45 execuções); o driver do display, as filas de
+trabalho e o backend de settings são substitutos ali. O firmware das duas metades
+compila naquele CI. A primeira versão do layout (os widgets se movendo, a animação
+mudando com o teclado funcionando, a cópia da tela direita para a metade periférica) foi
+usada em um Corne de verdade, e o dono dele relatou que funcionou, sem detalhes sobre
+cada operação. O que veio depois ainda não foi experimentado em um teclado real: o giro,
+o pedaço e a mistura da imagem (configurações 112 a 115), a conversão das coordenadas de
+uma imagem girada, e os 19 tipos novos.
 
 ### Requisições do ZMK Studio para a tela
 

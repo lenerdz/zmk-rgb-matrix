@@ -614,7 +614,8 @@ the `nice_oled` shield and its status widget, `CONFIG_NICE_OLED_WIDGET_STATUS`) 
 to the settings the layout of the screens of the
 [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) fork: for each widget,
 whether it is drawn and where, and, on the right screen, which animation or image is
-shown and how long one cycle takes. They are settings like the six above (the ids 16
+shown, how long one cycle takes, how the picture is turned, which piece of it shows and
+how it mixes with the widgets. They are settings like the six above (the ids 16
 and up), so everything said about those holds: a change is applied at once, kept in
 the flash of each half, copied to the peripheral and edited from ZMK Studio (the OLED
 tab of the [lenerdz/zmk-studio](https://github.com/lenerdz/zmk-studio) app is made for
@@ -634,13 +635,16 @@ peripheral for its own.
 
 Each widget has a block of eight ids, at `16 + 8 * n`: `+0` is whether it is shown (0
 or 1, default 1), `+1` its x and `+2` its y, in pixels, from -160 to 320. The
-animation also has `+3`, its kind, and `+4`, its cycle time. A widget that the
+animation also has `+3`, its kind, and `+4`, its cycle time. The picture needs four
+more settings, which do not fit in the three ids that are left in its block (21 to 23):
+the ids 112 to 115 (see "Turn, cut and mix the picture" below). A widget that the
 firmware was not built with has no entry in the list that ZMK Studio gets, and the
 peripheral has no entry for the left screen.
 
 | Ids | Screen | Widget | Settings | Listed when the build has |
 |---|---|---|---|---|
 | 16 to 20 | right | animation or still image | shown, x, y, kind, cycle time | no `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY` |
+| 112 to 115 | right | the same animation or still image | turn, mix, corner of the piece, size of the piece | the same as the animation |
 | 24 to 26 | right | battery of the right half, as a percentage | shown, x, y | always |
 | 32 to 34 | right | Bluetooth icon (connected to the left half or not) | shown, x, y | always |
 | 41 and 42 | right | first line of the light toast (the second is 8 pixels below) | x, y | always; the toast itself is `CONFIG_NICE_OLED_WIDGET_LED_TOAST`, and whether it is shown is setting 5 |
@@ -664,6 +668,32 @@ peripheral has no entry for the left screen.
 | 4 | pokemon | 48 | 10000 ms |
 | 5 | vim (still image) | 1 | none |
 | 6 | vip_marcos (still image) | 1 | none |
+| 7 | equalizer | 16 | 1200 ms |
+| 8 | radar | 24 | 2400 ms |
+| 9 | heartbeat | 16 | 1600 ms |
+| 10 | rain (digital rain) | 32 | 3200 ms |
+| 11 | cube (wire cube) | 16 | 1600 ms |
+| 12 | atom | 24 | 2400 ms |
+| 13 | helix | 16 | 1600 ms |
+| 14 | warp | 24 | 2400 ms |
+| 15 | sonar | 16 | 1600 ms |
+| 16 | bounce (bouncing ball) | 24 | 1200 ms |
+| 17 | flame | 16 | 1200 ms |
+| 18 | mountains (still image) | 1 | none |
+| 19 | skyline (still image) | 1 | none |
+| 20 | circuit (still image) | 1 | none |
+| 21 | alien (still image) | 1 | none |
+| 22 | heart (still image) | 1 | none |
+| 23 | keyboard (still image) | 1 | none |
+| 24 | pulsar (still image) | 1 | none |
+| 25 | rocket (still image) | 1 | none |
+
+The kinds 7 to 25 are the pictures that `scripts/pictures/make_pictures.py` of zmk-nice-oled
+draws, all 32 pixels wide (the width of the panel); its README ("New Pictures of the Right
+Screen") describes them. The number of a kind is what the keyboard saves in its flash, so a
+picture is only ever added at the end of this list, with the same name and number in
+`enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) and in the picture list of
+zmk-nice-oled, and `KP_OLED_ANIM_KIND_COUNT` goes up.
 
 The default kind is the one the build chose: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
 `_CAT`, `_SPACEMAN` or `_POKEMON` (the first one that is on, in that order, and the
@@ -681,11 +711,36 @@ right and y goes down the way the screen is looked at on the desk. The animation
 the image) is the exception: its frames are already rotated, and the firmware places
 them on the rotated canvas, so its x and y are the corner of the picture on the
 landscape canvas, which is the upright one turned by 90 degrees. For a picture of
-height h whose upright corner is (u, v), the settings are x = 160 - v - h and y = u. A
+height h (as it is looked at, after the turn of setting 112) whose upright corner is
+(u, v), the settings are x = 160 - v - h and y = u. A
 larger x moves the picture up, and a larger y moves it to the right. With the position
 of the build, x = 18 and y = -18, an animation of 68 x 69 pixels has its upright corner
 at u = -18, v = 73. The OLED tab of the app does this conversion; do it yourself only
 if you write the values some other way.
+
+**Turn, cut and mix the picture.** Four more settings, at the ids 112 to 115, say how the
+picture is put on the canvas. They are listed with the animation and mean something only
+on the right screen:
+
+| Id | Setting | Range | Default | What it does |
+|---|---|---|---|---|
+| 112 | Turn | 0 to 3 | 0 | quarter turns clockwise, as the picture is looked at |
+| 113 | Mix | 0 or 1 | 1 | how a lit pixel of the picture mixes with what the widgets drew under it: 0 (`KP_OLED_MIX_ADD`) lights the pixel whatever was there, so a widget gets lost where the picture is bright; 1 (`KP_OLED_MIX_INVERT`) flips what was there, so a widget over a bright part of the picture shows in reverse and stays readable |
+| 114 | Corner of the piece | 0 to 65535 | 0 | `x \| y << 8`: the corner of the piece of the picture that shows, in pixels of the picture as it is looked at (after the turn); a corner past the picture is taken as its last pixel |
+| 115 | Size of the piece | 0 to 65535 | 0 | `w \| h << 8`: a width or a height of 0 is the whole picture, and what goes past the picture is cut off |
+
+The piece is two settings of 8 bits apiece, so that a change of the piece is one write:
+it starts at most 255 pixels from the left or the top, and is at most 255 pixels wide and
+tall. The position of the animation (ids 17 and 18) is the corner of the **whole** picture
+after the turn, and a piece only hides the rest of it, so the picture stays where it is
+when the piece changes. A turn does not change the position: with the same x and y the
+bottom left corner of the picture, as it is looked at, stays where it was, and the OLED
+tab of the app sends a new position with the turn, to turn the picture about its center.
+Only the picture turns: the text widgets are drawn by fonts that cannot be turned.
+zmk-nice-oled puts the picture on the canvas after the widgets and after the canvas was
+rotated for the panel, which is why a widget can be over it (see "Picture on the Canvas:
+Turn, Crop and Mix" in
+[its README](https://github.com/lenerdz/zmk-nice-oled#picture-on-the-canvas-turn-crop-and-mix)).
 
 **Drawing again.** The widgets read the values every time they draw, and the event
 `zmk_display_settings_changed` (`zmk/events/display_settings_changed.h`) tells them to
@@ -702,18 +757,23 @@ options of the build and are drawn where the build says. The e-paper screens (ni
 and the like) are not supported.
 
 **Cost.** Measured in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-with the option on against off: the right half grows 68,520 bytes of flash (every
-animation is built in) and 560 bytes of RAM, and the left half 1,432 bytes of flash and
-224 bytes of RAM.
+with the option on against off: the right half grows 140,036 bytes of flash (every
+animation and image is built in: 64,064 bytes of them are the 19 pictures of the kinds 7
+to 25, and the rest is the code that puts the picture on the canvas) and 616 bytes of
+RAM, and the left half 1,512 bytes of flash and 240 bytes of RAM.
 
 **Status.** The table of the layout and its defaults (taken from the options of the
-Corne of that repository), the ranges, the change event, the flash records of the ids past
-the first 32, and the sync of only what the peripheral does not hold have host tests with a
-fake clock (`tests/unit/test_display_settings.py`, 43 runs); the display driver, the work
-queues and the settings backend are stand-ins there. The firmware of both halves builds in
-that CI. It has not been tried on a real keyboard yet: the widgets moving, the animation
-changing while the keyboard runs, the conversion of the coordinates of the animation, and
-the copy of the right screen to the peripheral half.
+Corne of that repository), the ranges (those of the turn, the mix and the piece too), the
+change event, the flash records of the ids past the first 32, and the sync of only what the
+peripheral does not hold have host tests with a fake clock
+(`tests/unit/test_display_settings.py`, 45 runs); the display driver, the work queues and
+the settings backend are stand-ins there. The firmware of both halves builds in that CI.
+The first version of the layout (the widgets moving, the animation changing while the
+keyboard runs, the copy of the right screen to the peripheral half) was used on a real
+Corne, and its owner reported that it worked, without detail about each operation. What
+came after it has not been tried on a real keyboard yet: the turn, the piece and the mix
+of the picture (settings 112 to 115), the conversion of the coordinates of a turned
+picture, and the 19 new kinds.
 
 ### ZMK Studio requests for the display
 
