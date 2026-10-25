@@ -795,10 +795,12 @@ options of the build and are drawn where the build says. The e-paper screens (ni
 and the like) are not supported.
 
 **Cost.** Measured in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-with the option on against off: the right half grows 140,036 bytes of flash (every
-animation and image is built in: 64,064 bytes of them are the 19 pictures of the kinds 7
-to 25, and the rest is the code that puts the picture on the canvas) and 616 bytes of
-RAM, and the left half 1,512 bytes of flash and 240 bytes of RAM.
+with the option on against off: the right half grows 254,652 bytes of flash (every
+animation and image is built in: 167,216 bytes of it is the data of the 59 pictures of the
+kinds 7 to 65, and the rest is the descriptors of the pictures and the code that puts the
+picture on the canvas) and 616 bytes of RAM, and the left half 2,592 bytes of flash and 240
+bytes of RAM. The 40 pictures of the kinds 26 to 65 alone added 114,616 bytes of flash to
+the right half and nothing to its RAM.
 
 **Status.** The table of the layout and its defaults (taken from the options of the
 Corne of that repository), the ranges (those of the turn, the mix and the piece too), the
@@ -901,8 +903,11 @@ the peripheral half is another firmware, and ZMK Studio cannot ask it anything.
 and the nanopb code that the protocol fork generates, with stand-ins for ZMK and Zephyr
 (the values, the cut strings, the 255 of a battery that was not read and the bytes that go
 over the wire, both ways); that check is not kept in this repository. The firmware builds
-in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried
-on a real keyboard yet: every number it reports, and in particular the flash and RAM (taken
+in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). With these requests
+the central half grew by 1,080 bytes of flash and nothing of RAM in that CI (FLASH from
+437,524 to 438,604 bytes, RAM at 153,752 bytes), and the log of that build prints the two
+numbers that `get_firmware_info` has to report for it: FLASH 438,604 B and RAM 153,752 B. It
+has not been tried on a real keyboard yet: every number it reports, and in particular the flash and RAM (taken
 from symbols of the linker that were not used before), the build information in the CI, the
 state of the Bluetooth profile and the battery of the peripheral half.
 

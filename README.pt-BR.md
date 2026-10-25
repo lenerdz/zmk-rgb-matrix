@@ -805,10 +805,12 @@ animação de bateria inteligente continuam sendo opções do build e são desen
 build diz. As telas e-paper (nice!view e parecidas) não são suportadas.
 
 **Custo.** Medido no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-com a opção ligada contra desligada: a metade direita cresce 140.036 bytes de flash
-(todas as animações e imagens são compiladas: 64.064 bytes delas são as 19 imagens dos
-tipos 7 a 25, e o resto é o código que coloca a imagem no canvas) e 616 bytes de RAM, e
-a metade esquerda 1.512 bytes de flash e 240 bytes de RAM.
+com a opção ligada contra desligada: a metade direita cresce 254.652 bytes de flash
+(todas as animações e imagens são compiladas: 167.216 bytes delas são os dados das 59
+imagens dos tipos 7 a 65, e o resto são os descritores das imagens e o código que coloca a
+imagem no canvas) e 616 bytes de RAM, e a metade esquerda 2.592 bytes de flash e 240 bytes
+de RAM. As 40 imagens dos tipos 26 a 65, sozinhas, somaram 114.616 bytes de flash à metade
+direita e nada à RAM dela.
 
 **Situação.** A tabela do layout e os padrões dela (tirados das opções do Corne daquele
 repositório), as faixas (as do giro, da mistura e do pedaço também), o evento de
@@ -914,7 +916,10 @@ outro firmware, e o ZMK Studio não pode perguntar nada a ela.
 `rpc.h` do ZMK e o código nanopb que o fork do protocolo gera, com substitutos para o ZMK e
 o Zephyr (os valores, as strings cortadas, o 255 de uma bateria que não foi lida e os bytes
 que vão pelo fio, nos dois sentidos); essa verificação não é mantida neste repositório. O
-firmware compila no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi
+firmware compila no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Com essas
+requisições a metade central cresceu 1.080 bytes de flash e nada de RAM nesse CI (FLASH de
+437.524 para 438.604 bytes, RAM em 153.752 bytes), e o log desse build escreve os dois números
+que `get_firmware_info` tem de informar para ele: FLASH 438.604 B e RAM 153.752 B. Ainda não foi
 experimentado em um teclado real: todo número que ele informa, e em particular a flash e a
 RAM (tiradas de símbolos do linker que não eram usados antes), as informações do build no
 CI, o estado do perfil Bluetooth e a bateria da metade periférica.
