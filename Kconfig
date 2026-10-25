@@ -344,3 +344,31 @@ config KEYPAW_DISPLAY_SETTINGS_STUDIO
       Without ZMK Studio on the build (the peripheral half, or ZMK_STUDIO off)
       this option is off, and the settings are still applied, kept and received
       from the central.
+
+config KEYPAW_DEVICE_STATUS_STUDIO
+    bool "Read the live status and the firmware information from ZMK Studio"
+    default y
+    depends on ZMK_STUDIO_RPC
+    help
+      Adds the two read only requests of the zmk-studio-messages fork
+      (lenerdz/zmk-studio-messages) that tell what the keyboard is doing and what
+      it is. The live status is what the screens draw right now: the battery of
+      both halves, whether the peripheral is connected, the highest active layer
+      and its name, the WPM, the output (USB or Bluetooth), the Bluetooth profile
+      and its state, the USB state and the uptime. The firmware information is the
+      keyboard, the board, the version of Zephyr, the build (the commit, the
+      branch, the number of the CI run and the day, which the build takes from the
+      GITHUB_* variables and leaves empty when they are not set) and the flash and
+      the RAM that the program takes and that the board has.
+
+      Every request needs the keyboard to be unlocked, like the keymap ones. They
+      keep nothing and change nothing, so there is no save step. Each request,
+      like any other, restarts the idle timer of ZMK Studio's lock (when locking
+      is on), so a client that asks for the live status all the time keeps the
+      keyboard unlocked.
+
+      Needs the protocol of that fork: the stock zmk-studio-messages has no such
+      requests, so building against it fails.
+
+      Without ZMK Studio on the build (the peripheral half, or ZMK_STUDIO off)
+      this option is off.

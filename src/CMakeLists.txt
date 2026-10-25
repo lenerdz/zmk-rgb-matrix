@@ -85,14 +85,45 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_DISPLAY_SETTINGS display_settings.c)
 # in include/zmk/events/display_settings_changed.h; display_settings.c raises it.
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_OLED_LAYOUT events/display_settings_changed.c)
 
-# ZMK Studio access to the colour maps and to the display settings: central-only,
-# because ZMK Studio is. studio_rpc.c and studio_rpc_display.c include the
-# headers that ZMK generates from the .proto files (<build>/proto/zmk/*.pb.h) as
-# part of its own `app` target, so this library needs that directory on its
-# include path and must not compile before `app` has generated them.
-if(CONFIG_KEYPAW_RGB_MAPS_STUDIO OR CONFIG_KEYPAW_DISPLAY_SETTINGS_STUDIO)
+# ZMK Studio access to the colour maps, to the display settings and to the live
+# status and firmware information: central-only, because ZMK Studio is.
+# studio_rpc.c, studio_rpc_display.c and studio_rpc_status.c include the headers
+# that ZMK generates from the .proto files (<build>/proto/zmk/*.pb.h) as part of
+# its own `app` target, so this library needs that directory on its include path
+# and must not compile before `app` has generated them.
+if(CONFIG_KEYPAW_RGB_MAPS_STUDIO OR CONFIG_KEYPAW_DISPLAY_SETTINGS_STUDIO OR
+   CONFIG_KEYPAW_DEVICE_STATUS_STUDIO)
   zephyr_library_include_directories(${CMAKE_BINARY_DIR})
   add_dependencies(${ZEPHYR_CURRENT_LIBRARY} app)
 endif()
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_MAPS_STUDIO studio_rpc.c)
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_DISPLAY_SETTINGS_STUDIO studio_rpc_display.c)
+
+# The firmware information that ZMK Studio reads says which build it is: the commit,
+# the branch and the number of the CI run (GitHub Actions sets GITHUB_SHA,
+# GITHUB_REF_NAME and GITHUB_RUN_NUMBER, also inside the build container) and the
+# day it was built. A build outside the CI has them empty, and the number is 0. The
+# values are cleaned up, because they go inside C string literals and numbers.
+if(CONFIG_KEYPAW_DEVICE_STATUS_STUDIO)
+  set(KP_BUILD_ID "")
+  if(DEFINED ENV{GITHUB_SHA})
+    string(REGEX REPLACE "[^0-9a-fA-F]" "" KP_BUILD_ID "$ENV{GITHUB_SHA}")
+    string(SUBSTRING "${KP_BUILD_ID}" 0 7 KP_BUILD_ID)
+  endif()
+
+  set(KP_BUILD_BRANCH "")
+  if(DEFINED ENV{GITHUB_REF_NAME})
+    string(REGEX REPLACE "[^A-Za-z0-9._/+-]" "_" KP_BUILD_BRANCH "$ENV{GITHUB_REF_NAME}")
+  endif()
+
+  set(KP_BUILD_NUMBER 0)
+  if(DEFINED ENV{GITHUB_RUN_NUMBER} AND "$ENV{GITHUB_RUN_NUMBER}" MATCHES "^[0-9]+$")
+    set(KP_BUILD_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
+  endif()
+
+  string(TIMESTAMP KP_BUILD_DATE "%Y-%m-%d" UTC)
+
+  configure_file(kp_build_info.h.in ${CMAKE_CURRENT_BINARY_DIR}/kp_build_info.h @ONLY)
+  zephyr_library_include_directories(${CMAKE_CURRENT_BINARY_DIR})
+  zephyr_library_sources(studio_rpc_status.c)
+endif()

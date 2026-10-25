@@ -183,9 +183,53 @@ enum kp_oled_anim_kind {
   KP_OLED_ANIM_KEYBOARD = 23,  /* a still image, 32 x 64 */
   KP_OLED_ANIM_PULSAR = 24,    /* a still image, 32 x 128 */
   KP_OLED_ANIM_ROCKET = 25,    /* a still image, 32 x 64 */
+
+  /* The second batch: 20 animations (26 to 45), then 20 still images (46 to 65), with
+   * the same rules. */
+  KP_OLED_ANIM_WATERFALL = 26,  /* 16 frames, 32 x 128 */
+  KP_OLED_ANIM_LAVA = 27,       /* 16 frames, 32 x 128 */
+  KP_OLED_ANIM_LIGHTNING = 28,  /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_SNOW = 29,       /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_JELLYFISH = 30,  /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_TETRIS = 31,     /* 20 frames, 32 x 64 */
+  KP_OLED_ANIM_PONG = 32,       /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_INVADERS = 33,   /* 8 frames, 32 x 64 */
+  KP_OLED_ANIM_PACMAN = 34,     /* 16 frames, 32 x 32 */
+  KP_OLED_ANIM_LIFE = 35,       /* 30 frames, 32 x 64 */
+  KP_OLED_ANIM_PLASMA = 36,     /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_SPIRAL = 37,     /* 16 frames, 32 x 32 */
+  KP_OLED_ANIM_NEWTON = 38,     /* 16 frames, 32 x 32 */
+  KP_OLED_ANIM_GEARS = 39,      /* 12 frames, 32 x 32 */
+  KP_OLED_ANIM_HOURGLASS = 40,  /* 20 frames, 32 x 64 */
+  KP_OLED_ANIM_WINDMILL = 41,   /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_FIREWORKS = 42,  /* 24 frames, 32 x 64 */
+  KP_OLED_ANIM_UFO = 43,        /* 16 frames, 32 x 64 */
+  KP_OLED_ANIM_EYE = 44,        /* 24 frames, 32 x 32 */
+  KP_OLED_ANIM_KEYWAVE = 45,    /* 24 frames, 32 x 64 */
+
+  KP_OLED_ANIM_COFFEE = 46,     /* a still image, 32 x 64 */
+  KP_OLED_ANIM_CACTUS = 47,     /* a still image, 32 x 64 */
+  KP_OLED_ANIM_LIGHTHOUSE = 48, /* a still image, 32 x 128 */
+  KP_OLED_ANIM_MOON_CAT = 49,   /* a still image, 32 x 64 */
+  KP_OLED_ANIM_ROBOT = 50,      /* a still image, 32 x 64 */
+  KP_OLED_ANIM_PLANET = 51,     /* a still image, 32 x 64 */
+  KP_OLED_ANIM_CASTLE = 52,     /* a still image, 32 x 64 */
+  KP_OLED_ANIM_TREE = 53,       /* a still image, 32 x 128 */
+  KP_OLED_ANIM_SKULL = 54,      /* a still image, 32 x 64 */
+  KP_OLED_ANIM_SWORD = 55,      /* a still image, 32 x 128 */
+  KP_OLED_ANIM_KEY = 56,        /* a still image, 32 x 64 */
+  KP_OLED_ANIM_ANTENNA = 57,    /* a still image, 32 x 128 */
+  KP_OLED_ANIM_POTION = 58,     /* a still image, 32 x 64 */
+  KP_OLED_ANIM_SAILBOAT = 59,   /* a still image, 32 x 64 */
+  KP_OLED_ANIM_COMPASS = 60,    /* a still image, 32 x 32 */
+  KP_OLED_ANIM_CROWN = 61,      /* a still image, 32 x 32 */
+  KP_OLED_ANIM_CASSETTE = 62,   /* a still image, 32 x 32 */
+  KP_OLED_ANIM_FLOPPY = 63,     /* a still image, 32 x 32 */
+  KP_OLED_ANIM_PHASES = 64,     /* a still image, 32 x 128 */
+  KP_OLED_ANIM_MUSHROOM = 65,   /* a still image, 32 x 32 */
 };
 
-#define KP_OLED_ANIM_KIND_COUNT 26
+#define KP_OLED_ANIM_KIND_COUNT 66
 
 /* The values of KP_OLED_R_ANIM_MIX. */
 enum kp_oled_mix {

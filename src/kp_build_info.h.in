@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) 2026 The ZMK Contributors
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * What the build knows about itself, for the firmware information that ZMK Studio
+ * reads (studio_rpc_status.c). CMake writes it from kp_build_info.h.in at every
+ * configure, with the GITHUB_* variables of the CI that runs the build; a build
+ * on another machine has them empty, and the number is 0.
+ */
+
+#pragma once
+
+#define KP_BUILD_ID "@KP_BUILD_ID@"
+#define KP_BUILD_BRANCH "@KP_BUILD_BRANCH@"
+#define KP_BUILD_NUMBER @KP_BUILD_NUMBER@
+#define KP_BUILD_DATE "@KP_BUILD_DATE@"

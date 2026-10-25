@@ -697,10 +697,48 @@ periférica não tem entradas da tela esquerda.
 | 23 | keyboard (imagem parada) | 1 | nenhum |
 | 24 | pulsar (imagem parada) | 1 | nenhum |
 | 25 | rocket (imagem parada) | 1 | nenhum |
+| 26 | waterfall | 16 | 1600 ms |
+| 27 | lava | 16 | 3200 ms |
+| 28 | lightning | 16 | 1600 ms |
+| 29 | snow | 24 | 2400 ms |
+| 30 | jellyfish | 16 | 1600 ms |
+| 31 | tetris | 20 | 2000 ms |
+| 32 | pong | 24 | 1500 ms |
+| 33 | invaders | 8 | 1600 ms |
+| 34 | pacman | 16 | 1600 ms |
+| 35 | life | 30 | 3000 ms |
+| 36 | plasma | 24 | 2400 ms |
+| 37 | spiral | 16 | 1600 ms |
+| 38 | newton | 16 | 1600 ms |
+| 39 | gears | 12 | 1000 ms |
+| 40 | hourglass | 20 | 2000 ms |
+| 41 | windmill | 16 | 1600 ms |
+| 42 | fireworks | 24 | 2400 ms |
+| 43 | ufo | 16 | 1600 ms |
+| 44 | eye | 24 | 2400 ms |
+| 45 | keywave | 24 | 2400 ms |
+| 46 | coffee (imagem parada) | 1 | nenhum |
+| 47 | cactus (imagem parada) | 1 | nenhum |
+| 48 | lighthouse (imagem parada) | 1 | nenhum |
+| 49 | moon_cat (imagem parada) | 1 | nenhum |
+| 50 | robot (imagem parada) | 1 | nenhum |
+| 51 | planet (imagem parada) | 1 | nenhum |
+| 52 | castle (imagem parada) | 1 | nenhum |
+| 53 | tree (imagem parada) | 1 | nenhum |
+| 54 | skull (imagem parada) | 1 | nenhum |
+| 55 | sword (imagem parada) | 1 | nenhum |
+| 56 | key (imagem parada) | 1 | nenhum |
+| 57 | antenna (imagem parada) | 1 | nenhum |
+| 58 | potion (imagem parada) | 1 | nenhum |
+| 59 | sailboat (imagem parada) | 1 | nenhum |
+| 60 | compass (imagem parada) | 1 | nenhum |
+| 61 | crown (imagem parada) | 1 | nenhum |
+| 62 | cassette (imagem parada) | 1 | nenhum |
+| 63 | floppy (imagem parada) | 1 | nenhum |
+| 64 | phases (imagem parada) | 1 | nenhum |
+| 65 | mushroom (imagem parada) | 1 | nenhum |
 
-Os tipos 7 a 25 são as imagens que o `scripts/pictures/make_pictures.py` do zmk-nice-oled
-desenha, todas com 32 pixels de largura (a largura do painel); o README dele ("Novas
-imagens da tela direita") as descreve. O número de um tipo é o que o teclado guarda na
+Os tipos 7 a 65 são as imagens que o `scripts/pictures/make_pictures.py` do zmk-nice-oled desenha em dois lotes (os tipos 7 a 25, e os tipos 26 a 65: 20 animações, depois 20 imagens paradas), todas com 32 pixels de largura (a largura do painel); o README dele ("Novas imagens da tela direita") as descreve. O número de um tipo é o que o teclado guarda na
 flash dele, então uma imagem só é acrescentada no fim desta lista, com o mesmo nome e
 número em `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) e na lista de
 imagens do zmk-nice-oled, e `KP_OLED_ANIM_KIND_COUNT` aumenta.
@@ -783,7 +821,7 @@ mudando com o teclado funcionando, a cópia da tela direita para a metade perif�
 usada em um Corne de verdade, e o dono dele relatou que funcionou, sem detalhes sobre
 cada operação. O que veio depois ainda não foi experimentado em um teclado real: o giro,
 o pedaço e a mistura da imagem (configurações 112 a 115), a conversão das coordenadas de
-uma imagem girada, e os 19 tipos novos.
+uma imagem girada, e os 59 tipos novos (7 a 65).
 
 ### Requisições do ZMK Studio para a tela
 
@@ -822,7 +860,67 @@ experimentado em um teclado real: o contraste, a tela apagando em cada modo, a c
 para a metade periférica e as três requisições (a situação do layout das telas OLED
 está em [Layout das telas OLED](#layout-das-telas-oled)).
 
+### Requisições do ZMK Studio para o estado ao vivo e as informações do firmware
+
+`CONFIG_KEYPAW_DEVICE_STATUS_STUDIO` (ligada por padrão quando o RPC do ZMK Studio está
+no build, ou seja, na metade central) acrescenta duas requisições somente de leitura ao
+subsistema `keymap`, no mesmo fork
+[lenerdz/zmk-studio-messages](https://github.com/lenerdz/zmk-studio-messages) das
+outras (veja [Requisições do ZMK Studio](#requisições-do-zmk-studio) para saber como usar
+o fork). Como as requisições do keymap, as duas exigem o teclado desbloqueado. Elas não
+mudam nada e não guardam nada: não há etapa de salvar e não há notificação, então um
+cliente que quer uma visão ao vivo pergunta de novo e de novo.
+
+| Requisição | Id | Resposta | O que diz |
+|---|---|---|---|
+| `get_live_status` | 109 | `LiveStatus` | o que as telas estão desenhando agora |
+| `get_firmware_info` | 110 | `FirmwareInfo` | o que o firmware é: não muda enquanto o teclado funciona, então o cliente pergunta uma vez |
+
+`LiveStatus` tem estes campos. Todo valor é o da central, lido direto do ZMK a cada
+requisição (nada é copiado nem guardado), exceto dois que a central sabe sobre a outra
+metade: se ela está conectada e o nível da bateria dela.
+
+| Campo | Significado |
+|---|---|
+| `battery_central` | a bateria da metade central, de 0 a 100; 255 quando não há leitura (um build sem `CONFIG_ZMK_BATTERY_REPORTING`) |
+| `battery_peripheral` | a bateria da metade periférica, de 0 a 100; 255 quando ela ainda não informou (isso precisa de `CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING`) |
+| `peripheral_connected` | a central enxerga a periférica |
+| `layer_index` e `layer_name` | a camada ativa mais alta: o índice dela na ordem do keymap e o nome dela (vazio quando não tem, e cortado em `CONFIG_ZMK_KEYMAP_LAYER_NAME_MAX_LEN` caracteres) |
+| `wpm` | as palavras por minuto agora (0 em um build sem `CONFIG_ZMK_WPM`) |
+| `output` | para onde vão as teclas, o endpoint selecionado do ZMK: `LIVE_OUTPUT_NONE`, `LIVE_OUTPUT_USB` ou `LIVE_OUTPUT_BLE` |
+| `ble_profile` e `ble_state` | o perfil Bluetooth selecionado (a partir de 0) e o estado dele: `LIVE_BLE_OPEN` (nenhum host pareado, anunciando), `LIVE_BLE_PAIRED` (pareado, host não conectado) ou `LIVE_BLE_CONNECTED` |
+| `usb_state` | `LIVE_USB_NONE`, `LIVE_USB_POWERED` (energia, mas o host ainda não configurou o teclado) ou `LIVE_USB_HID` (o host o usa) |
+| `uptime_s` | segundos desde que o teclado ligou |
+
+`FirmwareInfo` tem estes campos:
+
+| Campo | Significado |
+|---|---|
+| `keyboard` e `board` | `CONFIG_ZMK_KEYBOARD_NAME` e `CONFIG_BOARD` |
+| `zephyr` | a versão do Zephyr (`KERNEL_VERSION_STRING`) |
+| `build_id`, `build_branch`, `build_number` e `build_date` | o commit (7 caracteres), a branch e o número da execução do CI que compilou o firmware, e o dia (UTC). O CMake os pega de `GITHUB_SHA`, `GITHUB_REF_NAME` e `GITHUB_RUN_NUMBER`, que o GitHub Actions define (também dentro do contêiner do build), e escreve o `kp_build_info.h` a partir de `src/kp_build_info.h.in` a cada configuração. Um build fora desse CI os tem vazios, e o número é 0 |
+| `flash_total` e `flash_used` | os bytes da partição de código (`zephyr,code-partition` do devicetree) e os bytes dela que o programa ocupa (`_flash_used` do script do linker, o número que o build imprime como FLASH) |
+| `ram_total` e `ram_used` | os bytes da RAM (`zephyr,sram`) e os bytes dela que o programa ocupa assim que começa (`_image_ram_size`, o número que o build imprime como RAM: data, bss, noinit, pilhas e o heap) |
+
+As strings são cortadas para caber no que o fork do protocolo permite
+(`keymap.options.in`). Cada requisição, como qualquer outra, reinicia o temporizador de
+ociosidade do bloqueio do ZMK Studio (quando `CONFIG_ZMK_STUDIO_LOCKING` está ligada),
+então um cliente que pergunta o tempo todo mantém o teclado desbloqueado. Um firmware sem
+esses handlers responde `RPC_NOT_FOUND` a elas, e é assim que um cliente descobre que o
+recurso não existe. Os números de flash e de RAM são os da central: a metade periférica é
+outro firmware, e o ZMK Studio não pode perguntar nada a ela.
+
+**Situação.** Os dois handlers foram compilados e executados em um computador contra o
+`rpc.h` do ZMK e o código nanopb que o fork do protocolo gera, com substitutos para o ZMK e
+o Zephyr (os valores, as strings cortadas, o 255 de uma bateria que não foi lida e os bytes
+que vão pelo fio, nos dois sentidos); essa verificação não é mantida neste repositório. O
+firmware compila no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi
+experimentado em um teclado real: todo número que ele informa, e em particular a flash e a
+RAM (tiradas de símbolos do linker que não eram usados antes), as informações do build no
+CI, o estado do perfil Bluetooth e a bateria da metade periférica.
+
 ## Componentes embutidos
+
 
 Este módulo do ZMK foi projetado para ser extensível: você pode implementar
 efeitos e condições no seu próprio módulo personalizado sem precisar modificar o

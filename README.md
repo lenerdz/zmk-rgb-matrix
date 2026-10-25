@@ -687,10 +687,48 @@ peripheral has no entry for the left screen.
 | 23 | keyboard (still image) | 1 | none |
 | 24 | pulsar (still image) | 1 | none |
 | 25 | rocket (still image) | 1 | none |
+| 26 | waterfall | 16 | 1600 ms |
+| 27 | lava | 16 | 3200 ms |
+| 28 | lightning | 16 | 1600 ms |
+| 29 | snow | 24 | 2400 ms |
+| 30 | jellyfish | 16 | 1600 ms |
+| 31 | tetris | 20 | 2000 ms |
+| 32 | pong | 24 | 1500 ms |
+| 33 | invaders | 8 | 1600 ms |
+| 34 | pacman | 16 | 1600 ms |
+| 35 | life | 30 | 3000 ms |
+| 36 | plasma | 24 | 2400 ms |
+| 37 | spiral | 16 | 1600 ms |
+| 38 | newton | 16 | 1600 ms |
+| 39 | gears | 12 | 1000 ms |
+| 40 | hourglass | 20 | 2000 ms |
+| 41 | windmill | 16 | 1600 ms |
+| 42 | fireworks | 24 | 2400 ms |
+| 43 | ufo | 16 | 1600 ms |
+| 44 | eye | 24 | 2400 ms |
+| 45 | keywave | 24 | 2400 ms |
+| 46 | coffee (still image) | 1 | none |
+| 47 | cactus (still image) | 1 | none |
+| 48 | lighthouse (still image) | 1 | none |
+| 49 | moon_cat (still image) | 1 | none |
+| 50 | robot (still image) | 1 | none |
+| 51 | planet (still image) | 1 | none |
+| 52 | castle (still image) | 1 | none |
+| 53 | tree (still image) | 1 | none |
+| 54 | skull (still image) | 1 | none |
+| 55 | sword (still image) | 1 | none |
+| 56 | key (still image) | 1 | none |
+| 57 | antenna (still image) | 1 | none |
+| 58 | potion (still image) | 1 | none |
+| 59 | sailboat (still image) | 1 | none |
+| 60 | compass (still image) | 1 | none |
+| 61 | crown (still image) | 1 | none |
+| 62 | cassette (still image) | 1 | none |
+| 63 | floppy (still image) | 1 | none |
+| 64 | phases (still image) | 1 | none |
+| 65 | mushroom (still image) | 1 | none |
 
-The kinds 7 to 25 are the pictures that `scripts/pictures/make_pictures.py` of zmk-nice-oled
-draws, all 32 pixels wide (the width of the panel); its README ("New Pictures of the Right
-Screen") describes them. The number of a kind is what the keyboard saves in its flash, so a
+The kinds 7 to 65 are the pictures that `scripts/pictures/make_pictures.py` of zmk-nice-oled draws in two batches (the kinds 7 to 25, and the kinds 26 to 65: 20 animations, then 20 still images), all 32 pixels wide (the width of the panel); its README ("New Pictures of the Right Screen") describes them. The number of a kind is what the keyboard saves in its flash, so a
 picture is only ever added at the end of this list, with the same name and number in
 `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) and in the picture list of
 zmk-nice-oled, and `KP_OLED_ANIM_KIND_COUNT` goes up.
@@ -773,7 +811,7 @@ keyboard runs, the copy of the right screen to the peripheral half) was used on 
 Corne, and its owner reported that it worked, without detail about each operation. What
 came after it has not been tried on a real keyboard yet: the turn, the piece and the mix
 of the picture (settings 112 to 115), the conversion of the coordinates of a turned
-picture, and the 19 new kinds.
+picture, and the 59 new kinds (7 to 65).
 
 ### ZMK Studio requests for the display
 
@@ -811,7 +849,65 @@ a real keyboard yet: the contrast, the screen off in each mode, the copy to the
 peripheral half and the three requests (the status of the OLED layout is in
 [OLED layout](#oled-layout)).
 
+### ZMK Studio requests for the live status and the firmware information
+
+`CONFIG_KEYPAW_DEVICE_STATUS_STUDIO` (on by default when ZMK Studio's RPC is on the
+build, so on the central half) adds two read only requests to the `keymap` subsystem,
+in the same [lenerdz/zmk-studio-messages](https://github.com/lenerdz/zmk-studio-messages)
+fork as the others (see [ZMK Studio requests](#zmk-studio-requests) for how to use the
+fork). Like the keymap requests, both need the keyboard to be unlocked. They change
+nothing and keep nothing: there is no save step and no notification, so a client that
+wants a live view asks again and again.
+
+| Request | Id | Answer | What it says |
+|---|---|---|---|
+| `get_live_status` | 109 | `LiveStatus` | what the screens draw right now |
+| `get_firmware_info` | 110 | `FirmwareInfo` | what the firmware is: it does not change while the keyboard runs, so a client asks once |
+
+`LiveStatus` has these fields. Every value is the central's, read straight from ZMK on
+each request (nothing is copied or kept), except two that the central knows about the
+other half: whether it is connected and its battery level.
+
+| Field | Meaning |
+|---|---|
+| `battery_central` | the battery of the central half, from 0 to 100; 255 when there is no reading (a build without `CONFIG_ZMK_BATTERY_REPORTING`) |
+| `battery_peripheral` | the battery of the peripheral half, from 0 to 100; 255 when it has not reported (this needs `CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING`) |
+| `peripheral_connected` | the central sees the peripheral |
+| `layer_index` and `layer_name` | the highest active layer: its index in the keymap order, and its name (empty when it has none, and cut to `CONFIG_ZMK_KEYMAP_LAYER_NAME_MAX_LEN` characters) |
+| `wpm` | the words per minute now (0 in a build without `CONFIG_ZMK_WPM`) |
+| `output` | where the keys go, ZMK's selected endpoint: `LIVE_OUTPUT_NONE`, `LIVE_OUTPUT_USB` or `LIVE_OUTPUT_BLE` |
+| `ble_profile` and `ble_state` | the selected Bluetooth profile (from 0) and its state: `LIVE_BLE_OPEN` (no host paired, advertising), `LIVE_BLE_PAIRED` (paired, host not connected) or `LIVE_BLE_CONNECTED` |
+| `usb_state` | `LIVE_USB_NONE`, `LIVE_USB_POWERED` (power, but the host has not set the keyboard up) or `LIVE_USB_HID` (the host uses it) |
+| `uptime_s` | seconds since the keyboard started |
+
+`FirmwareInfo` has these fields:
+
+| Field | Meaning |
+|---|---|
+| `keyboard` and `board` | `CONFIG_ZMK_KEYBOARD_NAME` and `CONFIG_BOARD` |
+| `zephyr` | the version of Zephyr (`KERNEL_VERSION_STRING`) |
+| `build_id`, `build_branch`, `build_number` and `build_date` | the commit (7 characters), the branch and the number of the CI run that built the firmware, and the day (UTC). CMake takes them from `GITHUB_SHA`, `GITHUB_REF_NAME` and `GITHUB_RUN_NUMBER`, which GitHub Actions sets (also inside the build container), and writes `kp_build_info.h` from `src/kp_build_info.h.in` at every configure. A build outside that CI has them empty, and the number is 0 |
+| `flash_total` and `flash_used` | the bytes of the code partition (`zephyr,code-partition` of the devicetree), and the bytes of it that the program takes (`_flash_used` of the linker script, the number the build prints as FLASH) |
+| `ram_total` and `ram_used` | the bytes of the RAM (`zephyr,sram`), and the bytes of it that the program takes as soon as it starts (`_image_ram_size`, the number the build prints as RAM: data, bss, noinit, stacks and the heap) |
+
+The strings are cut to fit what the protocol fork allows (`keymap.options.in`). Each
+request, like any other, restarts the idle timer of ZMK Studio's lock (when
+`CONFIG_ZMK_STUDIO_LOCKING` is on), so a client that asks all the time keeps the keyboard
+unlocked. A firmware without these handlers answers them with `RPC_NOT_FOUND`, which is how
+a client can tell that the feature is missing. The numbers of flash and RAM are the central's:
+the peripheral half is another firmware, and ZMK Studio cannot ask it anything.
+
+**Status.** Both handlers were compiled and run on a computer against the `rpc.h` of ZMK
+and the nanopb code that the protocol fork generates, with stand-ins for ZMK and Zephyr
+(the values, the cut strings, the 255 of a battery that was not read and the bytes that go
+over the wire, both ways); that check is not kept in this repository. The firmware builds
+in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried
+on a real keyboard yet: every number it reports, and in particular the flash and RAM (taken
+from symbols of the linker that were not used before), the build information in the CI, the
+state of the Bluetooth profile and the battery of the peripheral half.
+
 ## Built-in components
+
 
 This ZMK module is designed to be extensible: you can implement effects and
 conditions in your own custom module without having to modify code in this

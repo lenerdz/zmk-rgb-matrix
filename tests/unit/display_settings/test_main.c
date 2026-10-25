@@ -568,12 +568,15 @@ static void s_layout_range(void) {
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_SHOW, -1) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_VIP_MARCOS) == 0);
-  /* the pictures that come after them: the first and the last */
+  /* the pictures that come after them: the first and the last of each batch */
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_EQUALIZER) == 0);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_ROCKET) == 0);
-  CHECK(KP_OLED_ANIM_ROCKET == KP_OLED_ANIM_KIND_COUNT - 1);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_WATERFALL) == 0);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_MUSHROOM) == 0);
+  CHECK(KP_OLED_ANIM_ROCKET + 1 == KP_OLED_ANIM_WATERFALL);
+  CHECK(KP_OLED_ANIM_MUSHROOM == KP_OLED_ANIM_KIND_COUNT - 1);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
-  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_ROCKET);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_MUSHROOM);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60001) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60000) == 0);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, -1) == -EINVAL);
