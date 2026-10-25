@@ -82,3 +82,14 @@ void kp_rgb_sync_display_kick(void);
 #else
 static inline void kp_rgb_sync_display_kick(void) {}
 #endif
+
+/* Asks the split sync to tell the peripheral that the keyboard is being used
+ * (`key`: a key was pressed on the central just now, which at most one report
+ * every few seconds carries) and whether the central has USB power. Without `key`
+ * it is only the USB state. Any context; no-op on a peripheral, and on a build
+ * without the split sync (idle_policy.c). */
+#if IS_ENABLED(CONFIG_KEYPAW_RGB_SPLIT_SYNC)
+void kp_rgb_sync_activity_kick(bool key);
+#else
+static inline void kp_rgb_sync_activity_kick(bool key) { ARG_UNUSED(key); }
+#endif

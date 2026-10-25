@@ -325,7 +325,10 @@ bindings = <
 Effect state is persisted when `CONFIG_SETTINGS=y`; otherwise the configured
 initial state is used at boot. The matrix turns off on idle by default;
 `CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE=n` keeps it lit and applies
-`idle-brightness` while idle.
+`idle-brightness` while idle. With `CONFIG_KEYPAW_DISPLAY_SETTINGS` on, ZMK's idle state
+is not used: the LEDs go off by the limits of the display settings (see
+[When the screen and the lights go off](#when-the-screen-and-the-lights-go-off)), and
+those two options do nothing.
 
 > In addition to ZMK commands, we offer a new `RGB_RESET` command. Because we
 > persist per-effect states, so when you change your devicetree RGB effect
@@ -545,53 +548,53 @@ to the peripheral half.
 ## Display (OLED) settings
 
 `CONFIG_KEYPAW_DISPLAY_SETTINGS` (off by default) keeps a list of numbered
-integer settings for the screens: the contrast of each half, when the screen goes
-off, the light toast of the [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled)
-fork and, with `CONFIG_KEYPAW_OLED_LAYOUT`, which widgets the screens draw and where
-(see [OLED layout](#oled-layout)). Each half applies them at once and keeps them in
-its own flash, the central copies them to the peripheral, and
-[ZMK Studio](https://zmk.dev/docs/features/studio) edits them (see
+integer settings for the screens and the lights: the contrast of each half, when the
+screen, the LEDs under the keys and the underglow go off, the light toast of the
+[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) fork, the anti burn-in of
+the screens (the pixel shift and the dimming) and, with `CONFIG_KEYPAW_OLED_LAYOUT`,
+which widgets the screens draw and where (see [OLED layout](#oled-layout)). Each half
+applies them at once and keeps them in its own flash, the central copies them to the
+peripheral, and [ZMK Studio](https://zmk.dev/docs/features/studio) edits them (see
 [ZMK Studio requests for the display](#zmk-studio-requests-for-the-display)).
 A widget reads one with `kp_display_setting_get()`
 (`include/zmk/display_settings.h`).
 
-It has nothing to do with the colours, but the command that reaches the peripheral
-travels in `&kprgb` and the copy is made by the same split sync, so it needs
-`CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX`, and it has to be on in the build of both
-halves. It also needs `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (the build fails
-otherwise), because the module turns the screen off itself.
+Apart from when the lights go off it has nothing to do with the colours, but the
+commands that reach the peripheral travel in `&kprgb` and the copy is made by the
+same split sync, so it needs `CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX`, and it has to be on
+in the build of both halves. It also needs `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (the
+build fails otherwise), because the module turns the screen off itself.
 
 | Id | Setting | Range | Default | What it does |
 |---|---|---|---|---|
 | 1 | Left screen contrast | 0 to 255 | 128 (`CONFIG_SSD1306_DEFAULT_CONTRAST`) | `display_set_contrast()` of the central half's screen |
 | 2 | Right screen contrast | 0 to 255 | 128 | the same, on the peripheral half |
-| 3 | Screen off | 0 never, 1 only on battery, 2 always | 0 | whether the screen goes off when the keyboard is idle; "only on battery" keeps it on while USB is connected to that half |
-| 4 | Seconds without activity before the screen goes off | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) to 3600 | 60 | counted from the last activity; used when setting 3 is not 0 |
+| 3 | Screen off | 0 never, 1 only on battery, 2 always | 0 (`CONFIG_KEYPAW_DISPLAY_OFF_MODE_DEFAULT`) | whether the screen goes off when nobody types; "only on battery" keeps it on while the keyboard has USB |
+| 4 | Seconds without activity before the screen goes off | 10 to 3600 | 60 (`CONFIG_KEYPAW_DISPLAY_OFF_AFTER_S_DEFAULT`) | counted from the last activity; used when setting 3 is not 0 |
 | 5 | Toast | 0 or 1 | 1 | the light toast of zmk-nice-oled |
 | 6 | Toast duration (ms) | 500 to 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | how long the toast stays on screen |
+| 7 | LEDs under the keys off | 0 never, 1 only on battery, 2 always | 1 (`CONFIG_KEYPAW_DISPLAY_KEYS_OFF_MODE_DEFAULT`) | whether the LEDs under the keys go off when nobody types |
+| 8 | Seconds without activity before the LEDs under the keys go off | 10 to 3600 | 300 (`CONFIG_KEYPAW_DISPLAY_KEYS_OFF_AFTER_S_DEFAULT`) | used when setting 7 is not 0 |
+| 9 | Underglow off | 0 never, 1 only on battery, 2 always | 1 (`CONFIG_KEYPAW_DISPLAY_GLOW_OFF_MODE_DEFAULT`) | the same, for the LEDs that are not under a key (the ones with `KP_RGB_NO_KEY` in the mapping of the `rgb-matrix` node) |
+| 10 | Seconds without activity before the underglow goes off | 10 to 3600 | 300 (`CONFIG_KEYPAW_DISPLAY_GLOW_OFF_AFTER_S_DEFAULT`) | used when setting 9 is not 0 |
+| 11 | Pixel shift | 0 or 1 | 1 (`CONFIG_KEYPAW_DISPLAY_SHIFT_DEFAULT`) | anti burn-in: from time to time everything a screen shows moves by one pixel along a short path (zmk-nice-oled does the drawing; see "Anti Burn-In: Pixel Shift" in its README) |
+| 12 | Seconds between two steps of the pixel shift | 10 to 3600 | 60 (`CONFIG_KEYPAW_DISPLAY_SHIFT_EVERY_S_DEFAULT`) | used when setting 11 is 1 |
+| 13 | Distance of the pixel shift | 1 to 4 | 2 (`CONFIG_KEYPAW_DISPLAY_SHIFT_PX_DEFAULT`) | pixels to each side of the place where the screen is drawn |
+| 14 | Seconds without activity before the screen dims | 0 to 3600 | 120 (`CONFIG_KEYPAW_DISPLAY_DIM_AFTER_S_DEFAULT`) | anti burn-in: 0 never dims, and a value from 1 to 9 counts as 10 |
+| 15 | Contrast of a dimmed screen | 5 to 90 | 25 (`CONFIG_KEYPAW_DISPLAY_DIM_LEVEL_DEFAULT`) | percentage of the normal contrast (never less than 1; a screen whose contrast is 0 stays at 0) |
 
 The settings with the ids 16 and up are the layout of the screens, described in
-[OLED layout](#oled-layout).
-
-**Screen off.** ZMK's own option cannot tell USB from battery, so the module turns
-the screen off itself, with `display_blanking_on()`, and back on with
-`display_blanking_off()`, on the display work queue (the one LVGL flushes from).
-ZMK goes idle after `CONFIG_ZMK_IDLE_TIMEOUT`; the module waits for the rest of
-the time of setting 4 after that and then turns the screen off, if the mode
-allows it. Any activity turns it on again. A change made from ZMK Studio turns
-the screen on and keeps it on for at least 10 seconds, so the change can be seen.
-The mode "never" does nothing at all, which is the same as ZMK's option being off.
-ZMK counts the activity of each half on its own: the left (central) half also counts
-the keys of the right half, but the right half only counts its own keys, so its
-screen goes off while you type only on the left.
+[OLED layout](#oled-layout). When the screen and the lights go off is explained in
+[When the screen and the lights go off](#when-the-screen-and-the-lights-go-off).
 
 **Flash.** Each half keeps one settings record, `keypaw/display/<id>` (an int32),
 for every setting that differs from its default; a setting at its default has no
 record. A change is written 3 seconds after the last one
 (`CONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS`, so that dragging a slider writes once)
-and the records win over the defaults at boot; a record that is unknown or out of range is ignored.
-`&kprgb RGB_RESET` does not touch them. ZMK Studio's "Restore Stock Settings"
-deletes them.
+and the records win over the defaults at boot; a record that is unknown or out of
+range is ignored (the one of a picture kind that was retired is deleted by the save
+that follows the boot). `&kprgb RGB_RESET` does not touch them. ZMK Studio's
+"Restore Stock Settings" deletes them.
 
 **Split keyboards.** The copy to the peripheral is the last phase of the split sync,
 after the colour maps: one `RGB_DISPLAY_SET_CMD` per setting (`param1` holds the
@@ -603,9 +606,82 @@ setting travels. When the peripheral connects (or restarts) nothing is known abo
 it, so every setting it applies is sent. The central never sends the settings of its
 own screen (the left contrast and, with the OLED layout, the widgets of the left
 screen). The peripheral applies the value and keeps it in its own flash, so its
-screen is right at boot, before the central connects. Both halves hold the six
-settings, and each half applies its own contrast. With the OLED layout, the central
-also holds the settings of both screens and the peripheral those of the right one.
+screen is right at boot, before the central connects. Both halves hold the fifteen
+settings, and each half applies what is its own: its contrast, the limits of its
+screen and of its LEDs, its pixel shift and its dimming. With the OLED layout, the
+central also holds the settings of both screens and the peripheral those of the
+right one.
+
+The activity travels the other way round, from the central to the peripheral, in
+`RGB_ACTIVITY_CMD` (0x107, `include/dt-bindings/keypaw/rgb_matrix.h`): `param2` has
+`RGB_ACTIVITY_USB` (1: the central has USB power) and `RGB_ACTIVITY_KEY` (2: a key
+was pressed on the central). While keys are pressed on the central it sends at most
+one report every 3 seconds (`KP_RGB_SYNC_ACTIVITY_MIN_MS`), plus one when the typing
+stops; it sends one when its USB state changes and one with every tick of the clock of
+the split sync (`CONFIG_KEYPAW_RGB_SPLIT_SYNC_CLOCK_MS`, 30 seconds). Like the clock,
+it stays out of the state machine of the snapshot, and one that is dropped is made up
+by the next.
+
+### When the screen and the lights go off
+
+ZMK's own idle state is not used here. It is one timeout for everything
+(`CONFIG_ZMK_IDLE_TIMEOUT`, 30 seconds), each half counts only the keys it sees (the
+right half does not notice that you are typing on the left one) and it knows nothing
+about USB, which is why the lights of a keyboard that was only being looked at went off
+by themselves. With the display settings the module keeps the time of the last activity
+itself (`src/idle_policy.c`, with the rules in `src/idle_policy.h`), and four things
+follow it, each with its own limit:
+
+| What | Settings | Default |
+|---|---|---|
+| the screen goes off | 3 and 4 | never (60 seconds when it is turned on) |
+| the LEDs under the keys go off | 7 and 8 | only on battery, after 300 seconds |
+| the underglow goes off | 9 and 10 | only on battery, after 300 seconds |
+| the screen dims | 14 and 15 | after 120 seconds, to 25 percent of its contrast |
+
+**Activity** is a key pressed on either half, a change made from ZMK Studio and the USB
+cable being plugged in or out. The central counts the keys of both halves (it receives
+those of the peripheral) and tells the peripheral about its own key presses and about its
+USB state (`RGB_ACTIVITY_CMD`, see "Split keyboards" above), so typing on one half keeps
+the other one awake and the halves go off together. A change in the USB state of the
+central that the peripheral hears about counts as activity too (the first report after
+the start does not). The shortest time is 10 seconds, which the peripheral can follow
+because a report of the central is never more than 3 seconds late.
+
+**The modes.** "Never" does nothing at all, which for the screen is the same as ZMK's
+own option being off. "Always" goes off when the time is up. "Only on battery" goes off
+only while the keyboard has no USB: the keyboard has USB when this half has USB power or,
+on the peripheral, when the central says it has (the peripheral stops believing the
+central after 120 seconds without a report, and counts only its own USB then). The
+dimming does not depend on USB: it is the protection of a screen that never goes off.
+
+**The screen** goes off with `display_blanking_on()` and comes back with
+`display_blanking_off()`, on the display work queue (the one LVGL flushes from). Dimming
+and going off are separate: the screen dims after the seconds of setting 14 (its
+contrast, setting 1 or 2, drops to the percentage of setting 15, and never to 0 if it
+was not 0) and goes off after the seconds of setting 4, and any activity brings back the
+contrast and the light. A change made from ZMK Studio counts as activity, so it turns the
+screen on and keeps it on for at least 10 seconds, so the change can be seen.
+
+**The LEDs** are two groups: the LEDs under the keys, and the underglow (the LEDs with
+`KP_RGB_NO_KEY` in the mapping of the `rgb-matrix` node). A group that is off is drawn
+black after the effects and the brightness, so what the effects remember is there when
+the first key press brings the group back; the on and off of `&kprgb RGB_TOG` is not
+touched. When both groups are off (or the only group the strip has), the matrix stops
+animating and the strip is black. `CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE` and
+`idle-brightness` do nothing while the display settings are on.
+
+**Status.** The rules and the glue have host tests with a fake clock, fake events and a
+fake split link (`tests/unit/test_idle_policy.py`, 16 scenarios: the modes, the limits,
+the order of the three, the USB of the peripheral and its expiry, the report of a key and
+its rate, a setting changed while the policy evaluates, a keyboard with no saved
+settings), and so does what it does to the LEDs (`tests/unit/test_idle_leds.py`: which
+LEDs go black for each state of the two groups, the switch of the user, ZMK's idle state
+being ignored, a strip with no LED); the contrast of a dimmed screen and the walk of the
+pixel shift are checked there too. It builds in the CI of
+[lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried on a
+real keyboard yet: the lights and the screen going off by themselves after their times,
+only on battery, the halves going off together, the dimming and the pixel shift.
 
 ### OLED layout
 
@@ -657,7 +733,7 @@ peripheral has no entry for the left screen.
 | 96 to 98 | left | WPM number | shown, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_NUMBER` |
 | 104 to 106 | left | WPM graph (x and y are the grid under it) | shown, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_GRAPH`, and neither the bongo cat, the luna dog nor the fixed modifier indicators |
 
-**Animation.** The kind (id 19) is one of these, offered in this order by the app:
+**Animation.** The kind (id 19) is one of these, offered in this order by the app (the retired ones, marked in the table, are not offered):
 
 | Value | Kind | Frames | Time of one cycle of its own |
 |---|---|---|---|
@@ -666,8 +742,8 @@ peripheral has no entry for the left screen.
 | 2 | head | 16 | 4800 ms |
 | 3 | spaceman | 20 | 4800 ms |
 | 4 | pokemon | 48 | 10000 ms |
-| 5 | vim (still image) | 1 | none |
-| 6 | vip_marcos (still image) | 1 | none |
+| 5 | vim (retired, it was a still image) | none | none |
+| 6 | vip_marcos (retired, it was a still image) | none | none |
 | 7 | equalizer | 16 | 1200 ms |
 | 8 | radar | 24 | 2400 ms |
 | 9 | heartbeat | 16 | 1600 ms |
@@ -682,11 +758,11 @@ peripheral has no entry for the left screen.
 | 18 | mountains (still image) | 1 | none |
 | 19 | skyline (still image) | 1 | none |
 | 20 | circuit (still image) | 1 | none |
-| 21 | alien (still image) | 1 | none |
-| 22 | heart (still image) | 1 | none |
+| 21 | alien (retired, it was a still image) | none | none |
+| 22 | heart (retired, it was a still image) | none | none |
 | 23 | keyboard (still image) | 1 | none |
-| 24 | pulsar (still image) | 1 | none |
-| 25 | rocket (still image) | 1 | none |
+| 24 | pulsar (retired, it was a still image) | none | none |
+| 25 | rocket (retired, it was a still image) | none | none |
 | 26 | waterfall | 16 | 1600 ms |
 | 27 | lava | 16 | 3200 ms |
 | 28 | lightning | 16 | 1600 ms |
@@ -707,36 +783,48 @@ peripheral has no entry for the left screen.
 | 43 | ufo | 16 | 1600 ms |
 | 44 | eye | 24 | 2400 ms |
 | 45 | keywave | 24 | 2400 ms |
-| 46 | coffee (still image) | 1 | none |
-| 47 | cactus (still image) | 1 | none |
-| 48 | lighthouse (still image) | 1 | none |
+| 46 | coffee (retired, it was a still image) | none | none |
+| 47 | cactus (retired, it was a still image) | none | none |
+| 48 | lighthouse (retired, it was a still image) | none | none |
 | 49 | moon_cat (still image) | 1 | none |
-| 50 | robot (still image) | 1 | none |
+| 50 | robot (retired, it was a still image) | none | none |
 | 51 | planet (still image) | 1 | none |
-| 52 | castle (still image) | 1 | none |
-| 53 | tree (still image) | 1 | none |
-| 54 | skull (still image) | 1 | none |
-| 55 | sword (still image) | 1 | none |
-| 56 | key (still image) | 1 | none |
-| 57 | antenna (still image) | 1 | none |
-| 58 | potion (still image) | 1 | none |
-| 59 | sailboat (still image) | 1 | none |
-| 60 | compass (still image) | 1 | none |
-| 61 | crown (still image) | 1 | none |
-| 62 | cassette (still image) | 1 | none |
-| 63 | floppy (still image) | 1 | none |
-| 64 | phases (still image) | 1 | none |
-| 65 | mushroom (still image) | 1 | none |
+| 52 | castle (retired, it was a still image) | none | none |
+| 53 | tree (retired, it was a still image) | none | none |
+| 54 | skull (retired, it was a still image) | none | none |
+| 55 | sword (retired, it was a still image) | none | none |
+| 56 | key (retired, it was a still image) | none | none |
+| 57 | antenna (retired, it was a still image) | none | none |
+| 58 | potion (retired, it was a still image) | none | none |
+| 59 | sailboat (retired, it was a still image) | none | none |
+| 60 | compass (retired, it was a still image) | none | none |
+| 61 | crown (retired, it was a still image) | none | none |
+| 62 | cassette (retired, it was a still image) | none | none |
+| 63 | floppy (retired, it was a still image) | none | none |
+| 64 | phases (retired, it was a still image) | none | none |
+| 65 | mushroom (retired, it was a still image) | none | none |
 
-The kinds 7 to 65 are the pictures that `scripts/pictures/make_pictures.py` of zmk-nice-oled draws in two batches (the kinds 7 to 25, and the kinds 26 to 65: 20 animations, then 20 still images), all 32 pixels wide (the width of the panel); its README ("New Pictures of the Right Screen") describes them. The number of a kind is what the keyboard saves in its flash, so a
-picture is only ever added at the end of this list, with the same name and number in
-`enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) and in the picture list of
-zmk-nice-oled, and `KP_OLED_ANIM_KIND_COUNT` goes up.
+The kinds 7 to 65 are the pictures that `scripts/pictures/make_pictures.py` of zmk-nice-oled draws in two batches (the kinds 7 to 25, and the kinds 26 to 65: 20 animations, then 20 still images), all 32 pixels wide (the width of the panel); its README ("New Pictures of the Right Screen") describes them.
+
+24 of the 66 kinds are **retired**: the still images `vim` and `vip_marcos` of the
+original shield and 22 of the new ones. Only `mountains`, `skyline`, `circuit`,
+`keyboard`, `moon_cat` and `planet` are left, so the app offers 42 pictures (36
+animations and 6 still images). A retired kind keeps its number and its name in
+`enum kp_oled_anim_kind`, but it has no picture in the firmware:
+`kp_oled_anim_kind_retired()` (`include/zmk/display_settings.h`) tells which ones they
+are, the keyboard does not accept one as the value of setting 19 (`INVALID_VALUE` for
+the request), and the record of one that was saved before is ignored and deleted when
+the settings load, so the screen goes back to the default kind.
+
+The number of a kind is what the keyboard saves in its flash, so a picture is only ever
+added at the end of this list (and one that goes away is retired, never removed), with
+the same name and number in `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`)
+and in the picture list of zmk-nice-oled, and `KP_OLED_ANIM_KIND_COUNT` goes up.
 
 The default kind is the one the build chose: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
 `_CAT`, `_SPACEMAN` or `_POKEMON` (the first one that is on, in that order, and the
-crystal if none is), or, without an animation,
-`CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` or `_VIP_MARCOS`. The cycle time
+crystal if none is; `CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` and
+`_VIP_MARCOS` ask for a retired kind, so the crystal is the default then). The cycle time
 (id 20) is 0, or from 100 to 60000 ms: 0 is the time that belongs to the animation (the
 one the build chose keeps `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_MS`), and a value
 from 1 to 99 counts as 100. A still image has no cycle. With the option on, zmk-nice-oled
@@ -806,14 +894,14 @@ the right half and nothing to its RAM.
 Corne of that repository), the ranges (those of the turn, the mix and the piece too), the
 change event, the flash records of the ids past the first 32, and the sync of only what the
 peripheral does not hold have host tests with a fake clock
-(`tests/unit/test_display_settings.py`, 45 runs); the display driver, the work queues and
+(`tests/unit/test_display_settings.py`, 50 runs); the display driver, the work queues and
 the settings backend are stand-ins there. The firmware of both halves builds in that CI.
 The first version of the layout (the widgets moving, the animation changing while the
 keyboard runs, the copy of the right screen to the peripheral half) was used on a real
 Corne, and its owner reported that it worked, without detail about each operation. What
 came after it has not been tried on a real keyboard yet: the turn, the piece and the mix
 of the picture (settings 112 to 115), the conversion of the coordinates of a turned
-picture, and the 59 new kinds (7 to 65).
+picture, and the 37 pictures left of the new kinds (7 to 65).
 
 ### ZMK Studio requests for the display
 
@@ -832,9 +920,8 @@ unlocked.
 
 There is no save or discard step, and no notification: a change is applied at
 once and written to flash a few seconds later. A client has to use the `min`, `max` and `default_value` that
-`get_display_info` reports, because they depend on the firmware (the lower limit
-of setting 4 is the idle timeout of the build, and the list itself changes with the
-options of the build: six settings, or more with the OLED layout). The list has no
+`get_display_info` reports, because they depend on the firmware (the list itself changes with the
+options of the build: fifteen settings, or more with the OLED layout). The list has no
 fixed size: `settings` is encoded by a callback, one entry at a time, so a firmware
 lists as many settings as it has (the module keeps at most 64, `KP_DISPLAY_SETTING_CAP`).
 A firmware without these handlers
@@ -843,12 +930,14 @@ feature is missing. ZMK Studio's "Restore Stock Settings" also puts the settings
 back to their defaults.
 
 **Status.** The logic of the settings (ranges, flash records, the contrast of each
-half, when the screen goes off, the command for the peripheral) has host tests with
-a fake clock (`tests/unit/test_display_settings.py`); the display driver, the work
-queues and the settings backend are stand-ins there. It builds in the CI of
+half, when the screen goes off, the limits of the LEDs, the dimming and the pixel shift,
+the command for the peripheral) has host tests with a fake clock
+(`tests/unit/test_display_settings.py`, `tests/unit/test_idle_policy.py` and
+`tests/unit/test_idle_leds.py`); the display driver, the work queues and the settings
+backend are stand-ins there. It builds in the CI of
 [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). It has not been tried on
-a real keyboard yet: the contrast, the screen off in each mode, the copy to the
-peripheral half and the three requests (the status of the OLED layout is in
+a real keyboard yet: the contrast, the screen and the lights going off in each mode,
+the copy to the peripheral half and the three requests (the status of the OLED layout is in
 [OLED layout](#oled-layout)).
 
 ### ZMK Studio requests for the live status and the firmware information

@@ -155,24 +155,52 @@ extern struct settings_handler_stub g_settings_handler;
 int settings_save_one(const char *name, const void *value, size_t val_len);
 int settings_delete(const char *name);
 
-/* ---- ZMK ------------------------------------------------------------------ */
-enum zmk_activity_state {
-  ZMK_ACTIVITY_ACTIVE,
-  ZMK_ACTIVITY_IDLE,
-  ZMK_ACTIVITY_SLEEP
+/* ---- spinlock (idle_policy.c) ---------------------------------------------- */
+struct k_spinlock {
+  int locked;
 };
-extern enum zmk_activity_state g_activity;
-static inline enum zmk_activity_state zmk_activity_get_state(void) {
-  return g_activity;
+typedef int k_spinlock_key_t;
+static inline k_spinlock_key_t k_spin_lock(struct k_spinlock *l) {
+  l->locked++;
+  return 0;
 }
+static inline void k_spin_unlock(struct k_spinlock *l, k_spinlock_key_t key) {
+  (void)key;
+  l->locked--;
+}
+#define APPLICATION 2
+#define CONFIG_APPLICATION_INIT_PRIORITY 90
+
+/* ---- ZMK ------------------------------------------------------------------ */
 extern int g_usb_powered;
 static inline bool zmk_usb_is_powered(void) { return g_usb_powered; }
 
 struct k_work_q *zmk_display_work_q(void);
 
+/* The events that idle_policy.c listens to. One stand-in carries whichever of them
+ * `kind` says (1 a key position, 2 USB), as the as_zmk_*() accessors return it. */
+struct zmk_position_state_changed {
+  uint8_t source;
+  uint32_t position;
+  bool state;
+};
+#define ZMK_POSITION_STATE_CHANGE_SOURCE_LOCAL UINT8_MAX
+struct zmk_usb_conn_state_changed {
+  int conn_state;
+};
 typedef struct {
-  int unused;
+  int kind;
+  struct zmk_position_state_changed position;
+  struct zmk_usb_conn_state_changed usb;
 } zmk_event_t;
+static inline const struct zmk_position_state_changed *
+as_zmk_position_state_changed(const zmk_event_t *eh) {
+  return eh->kind == 1 ? &eh->position : NULL;
+}
+static inline const struct zmk_usb_conn_state_changed *
+as_zmk_usb_conn_state_changed(const zmk_event_t *eh) {
+  return eh->kind == 2 ? &eh->usb : NULL;
+}
 #define ZMK_EV_EVENT_BUBBLE 0
 extern int (*g_listener_cb)(const zmk_event_t *);
 #define ZMK_LISTENER(name, cb) int (*g_listener_cb)(const zmk_event_t *) = cb

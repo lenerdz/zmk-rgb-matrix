@@ -5,17 +5,22 @@
 
 The file is compiled as it is, against small stand-ins for the Zephyr and ZMK APIs it
 uses (tests/unit/display_settings/stub_all.h and stub_impl.c: a fake clock, work queues,
-display, settings store, activity and USB state). Each scenario of test_main.c runs in
-its own process, because the file keeps its state in statics. It checks:
+display, settings store and USB state) and against a stand-in of the idle policy
+(stub_idle.c: the test says what the policy says, and sees what is asked of it). Each
+scenario of test_main.c runs in its own process, because the file keeps its state in
+statics. It checks:
 
-  - the ranges, the defaults and the answers for an id or a value that does not exist;
+  - the ranges, the defaults and the answers for an id or a value that does not exist,
+    among them the nine settings of the lights and the anti burn-in (ids 7 to 15);
   - the flash records: one per setting that differs from its default, written once after
     the debounce, deleted when the setting is back to its default, loaded with the bad
     ones ignored, deleted at once by the settings reset;
   - the contrast of each half (the central applies the left one, the peripheral the right
     one), at boot and at every change;
-  - when the screen goes off: the modes never, only on battery and always, the idle time of
-    ZMK, USB being plugged and unplugged, the wake of a change made from ZMK Studio;
+  - that the screen does what the idle policy says (off, on, dimmed to a percent of the
+    contrast of this half, never black), the contrast going before the light when the
+    screen wakes, and that a change of a setting counts as activity and makes the policy
+    read the settings again (the policy itself is tested apart: test_idle_policy.py);
   - the wire format of the command that carries a setting to the peripheral, and which
     settings the central sends: the ones the peripheral applies, once after a connection and
     then only what changes;
@@ -51,22 +56,29 @@ SHIMS = [
     "zephyr/settings/settings.h",
     "zephyr/sys/atomic.h",
     "zephyr/sys/util.h",
-    "zmk/activity.h",
     "zmk/display.h",
     "zmk/event_manager.h",
-    "zmk/events/activity_state_changed.h",
     "zmk/events/display_settings_changed.h",
-    "zmk/events/usb_conn_state_changed.h",
-    "zmk/usb.h",
     "dt-bindings/zmk/rgb.h",
 ]
 
+# The defaults of Kconfig, as the module declares them (the values below are the ones
+# the README documents).
 COMMON_DEFINES = [
     "-DCONFIG_KEYPAW_DISPLAY_SETTINGS=1",
-    "-DCONFIG_ZMK_IDLE_TIMEOUT=30000",
-    "-DCONFIG_USB_DEVICE_STACK=1",
     "-DCONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT=1500",
     "-DCONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS=3000",
+    "-DCONFIG_KEYPAW_DISPLAY_OFF_MODE_DEFAULT=0",
+    "-DCONFIG_KEYPAW_DISPLAY_OFF_AFTER_S_DEFAULT=60",
+    "-DCONFIG_KEYPAW_DISPLAY_KEYS_OFF_MODE_DEFAULT=1",
+    "-DCONFIG_KEYPAW_DISPLAY_KEYS_OFF_AFTER_S_DEFAULT=300",
+    "-DCONFIG_KEYPAW_DISPLAY_GLOW_OFF_MODE_DEFAULT=1",
+    "-DCONFIG_KEYPAW_DISPLAY_GLOW_OFF_AFTER_S_DEFAULT=300",
+    "-DCONFIG_KEYPAW_DISPLAY_SHIFT_DEFAULT=1",
+    "-DCONFIG_KEYPAW_DISPLAY_SHIFT_EVERY_S_DEFAULT=60",
+    "-DCONFIG_KEYPAW_DISPLAY_SHIFT_PX_DEFAULT=2",
+    "-DCONFIG_KEYPAW_DISPLAY_DIM_AFTER_S_DEFAULT=120",
+    "-DCONFIG_KEYPAW_DISPLAY_DIM_LEVEL_DEFAULT=25",
     "-DCONFIG_SSD1306_DEFAULT_CONTRAST=128",
     "-DCONFIG_ZMK_LOG_LEVEL=0",
 ]
@@ -122,13 +134,11 @@ CENTRAL_SCENARIOS = [
     "contrast_persist",
     "debounce_batch",
     "range",
-    "never",
-    "always",
-    "always_min",
-    "battery",
-    "wake_while_blanked",
-    "back_to_never",
-    "mode_change_while_idle",
+    "screen_follows_idle",
+    "wake_order",
+    "dim",
+    "activity_on_change",
+    "new_settings",
     "load",
     "boot_apply",
     "restore",
@@ -146,7 +156,10 @@ COMMON_LAYOUT_SCENARIOS = [
     "contrast_persist",
     "debounce_batch",
     "range",
-    "always",
+    "screen_follows_idle",
+    "dim",
+    "activity_on_change",
+    "new_settings",
     "load",
     "boot_apply",
     "restore",
@@ -158,6 +171,8 @@ CENTRAL_LAYOUT_SCENARIOS = COMMON_LAYOUT_SCENARIOS + [
     "layout_defaults",
     "layout_range",
     "layout_picture",
+    "layout_retired",
+    "layout_retired_load",
     "layout_event",
     "layout_persist",
     "layout_load",
@@ -169,6 +184,8 @@ PERIPHERAL_LAYOUT_SCENARIOS = [
     "peripheral_boot",
     "layout_defaults",
     "layout_picture",
+    "layout_retired",
+    "layout_retired_load",
     "layout_peripheral",
     "layout_peripheral_boot",
 ]
@@ -203,6 +220,7 @@ def build(name, defines, directory):
             *defines,
             str(SRC / "display_settings.c"),
             str(HARNESS / "stub_impl.c"),
+            str(HARNESS / "stub_idle.c"),
             str(HARNESS / "test_main.c"),
             "-o", str(executable),
         ],

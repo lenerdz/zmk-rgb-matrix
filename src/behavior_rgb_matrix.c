@@ -21,6 +21,7 @@
 #include <zmk/rgb_matrix.h>
 
 #include "display_settings.h"
+#include "idle_policy.h"
 #include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
@@ -752,6 +753,14 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     kp_rgb_set_clock_offset(
         (int32_t)(binding->param2 - (uint32_t)k_uptime_get()));
     return 0;
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+  case RGB_ACTIVITY_CMD:
+    /* What the central says about its keys and its USB, for the idle policy of
+     * this half (idle_policy.c). Not part of the saved state. */
+    kp_idle_peer_update((binding->param2 & RGB_ACTIVITY_USB) != 0,
+                        (binding->param2 & RGB_ACTIVITY_KEY) != 0);
+    return 0;
+#endif
   default:
     return -ENOTSUP;
   }

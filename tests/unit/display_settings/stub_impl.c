@@ -3,8 +3,9 @@
  *
  * SPDX-License-Identifier: MIT
  *
- * Fake clock, work queues, display, settings store and activity/USB state for the host
- * test of src/display_settings.c.
+ * Fake clock, work queues, display, settings store and USB state for the host tests of
+ * src/display_settings.c and src/idle_policy.c (tests/unit/idle_policy shares this
+ * file).
  */
 #include "stub_all.h"
 
@@ -18,7 +19,6 @@ struct k_work_q g_sys_q = {"sys"};
 static struct k_work_q g_disp_q = {"display"};
 struct k_work_q *zmk_display_work_q(void) { return &g_disp_q; }
 
-enum zmk_activity_state g_activity = ZMK_ACTIVITY_ACTIVE;
 int g_usb_powered;
 struct device g_display_dev = {1};
 
@@ -126,10 +126,26 @@ int g_screen_on = 1;
 int g_contrast = -1;
 int g_blank_on_calls, g_blank_off_calls, g_contrast_calls;
 
+/* What the driver was asked, in order: C contrast, F the screen goes off (blanking on),
+ * N the screen goes on (blanking off). */
+char g_display_trace[64];
+
+static void trace(char c) {
+  size_t n = strlen(g_display_trace);
+
+  if (n + 1 < sizeof(g_display_trace)) {
+    g_display_trace[n] = c;
+    g_display_trace[n + 1] = '\0';
+  }
+}
+
+void trace_clear(void) { g_display_trace[0] = '\0'; }
+
 int display_blanking_on(const struct device *d) {
   (void)d;
   g_blank_on_calls++;
   g_screen_on = 0;
+  trace('F');
   return 0;
 }
 
@@ -137,6 +153,7 @@ int display_blanking_off(const struct device *d) {
   (void)d;
   g_blank_off_calls++;
   g_screen_on = 1;
+  trace('N');
   return 0;
 }
 
@@ -144,6 +161,7 @@ int display_set_contrast(const struct device *d, uint8_t contrast) {
   (void)d;
   g_contrast_calls++;
   g_contrast = contrast;
+  trace('C');
   return 0;
 }
 

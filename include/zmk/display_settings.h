@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* The ids are part of the ZMK Studio protocol (README of
@@ -27,13 +28,49 @@ enum kp_display_setting_id {
   /* enum kp_display_off_mode: when the screen goes off after the keyboard is
    * idle. */
   KP_DISPLAY_OFF_MODE = 3,
-  /* Seconds without activity before the screen goes off (not less than
-   * CONFIG_ZMK_IDLE_TIMEOUT). */
+  /* Seconds without activity before the screen goes off, 10 to 3600. The module
+   * counts the idle time itself (idle_policy.c), so it no longer depends on
+   * CONFIG_ZMK_IDLE_TIMEOUT. */
   KP_DISPLAY_OFF_AFTER_S = 4,
   /* 0 or 1: the light toast on the right screen. */
   KP_DISPLAY_TOAST = 5,
   /* 500 to 5000: how long the toast stays on screen, in milliseconds. */
   KP_DISPLAY_TOAST_MS = 6,
+
+  /* ---- When the lights go off, and the anti burn-in (ids 7 to 15) -----------
+   *
+   * The same idle time counts for everything below and for the screen (ids 3 and
+   * 4): the time since the last key press on either half, the use of ZMK Studio
+   * and plugging USB in. The central tells the peripheral about it (the command
+   * RGB_ACTIVITY_CMD), so the two halves turn off together whichever half is
+   * being typed on. For the modes "only on battery", the keyboard has USB when
+   * this half has it or, on the peripheral, when the central has it. */
+
+  /* enum kp_display_off_mode: when the LEDs under the keys go off. */
+  KP_DISPLAY_KEYS_OFF_MODE = 7,
+  /* Seconds without activity before they go off, 10 to 3600. */
+  KP_DISPLAY_KEYS_OFF_AFTER_S = 8,
+  /* enum kp_display_off_mode: when the underglow LEDs (the ones that are not
+   * under a key) go off. */
+  KP_DISPLAY_GLOW_OFF_MODE = 9,
+  /* Seconds without activity before they go off, 10 to 3600. */
+  KP_DISPLAY_GLOW_OFF_AFTER_S = 10,
+  /* 0 or 1: pixel shift. Every KP_DISPLAY_SHIFT_EVERY_S seconds the picture of
+   * each screen moves one pixel, along a walk that is KP_DISPLAY_SHIFT_PX pixels
+   * wide on each side (kp_display_shift_offset), so that no pixel stays lit under
+   * the same picture for hours. The screens do it themselves (zmk-nice-oled). */
+  KP_DISPLAY_SHIFT = 11,
+  /* 10 to 3600: seconds between two steps of the pixel shift. */
+  KP_DISPLAY_SHIFT_EVERY_S = 12,
+  /* 1 to 4: how far the picture goes from its place, in pixels, on each side. */
+  KP_DISPLAY_SHIFT_PX = 13,
+  /* 0 to 3600: seconds without activity before the screen dims (its contrast
+   * drops to KP_DISPLAY_DIM_LEVEL percent). 0 is never; a value from 1 to 9 counts
+   * as 10. The screen can go off (ids 3 and 4) after dimming, or stay dimmed. */
+  KP_DISPLAY_DIM_AFTER_S = 14,
+  /* 5 to 90: the contrast of a dimmed screen, as a percentage of the one set in
+   * KP_DISPLAY_LEFT_CONTRAST or KP_DISPLAY_RIGHT_CONTRAST. */
+  KP_DISPLAY_DIM_LEVEL = 15,
 
   /* ---- OLED layout (CONFIG_KEYPAW_OLED_LAYOUT) ------------------------------
    *
@@ -157,13 +194,20 @@ enum kp_oled_anim_kind {
   KP_OLED_ANIM_HEAD = 2,    /* 16 frames */
   KP_OLED_ANIM_SPACEMAN = 3, /* 20 frames */
   KP_OLED_ANIM_POKEMON = 4, /* 48 frames */
-  KP_OLED_ANIM_VIM = 5,     /* a still image */
-  KP_OLED_ANIM_VIP_MARCOS = 6, /* a still image */
+  KP_OLED_ANIM_VIM = 5, /* retired: was a still image */
+  KP_OLED_ANIM_VIP_MARCOS = 6, /* retired: was a still image */
 
   /* The pictures that scripts/pictures/make_pictures.py of zmk-nice-oled draws (the
    * list is assets/pictures/pictures.json there), 32 pixels wide: the width of the
    * screen, so that none of it is cut off by the panel. A number is what the keyboard
-   * saves in its memory: only add at the end, never reorder or remove. */
+   * saves in its memory: only add at the end, never reorder or remove.
+   *
+   * A kind can be retired: the picture is gone from the firmware and from the app,
+   * and its number stays reserved so that the others keep theirs. Nothing is ever
+   * drawn for a retired kind, the keyboard does not accept it as a setting and it
+   * forgets one that it had saved (kp_oled_anim_kind_retired()). Of the still
+   * images only 18 (mountains), 19 (skyline), 20 (circuit), 23 (keyboard), 49
+   * (moon cat) and 51 (planet) are left; the 24 other ones are retired. */
   KP_OLED_ANIM_EQUALIZER = 7,  /* 16 frames, 32 x 64 */
   KP_OLED_ANIM_RADAR = 8,      /* 24 frames, 32 x 32 */
   KP_OLED_ANIM_HEARTBEAT = 9,  /* 16 frames, 32 x 64 */
@@ -178,11 +222,11 @@ enum kp_oled_anim_kind {
   KP_OLED_ANIM_MOUNTAINS = 18, /* a still image, 32 x 128 */
   KP_OLED_ANIM_SKYLINE = 19,   /* a still image, 32 x 128 */
   KP_OLED_ANIM_CIRCUIT = 20,   /* a still image, 32 x 128 */
-  KP_OLED_ANIM_ALIEN = 21,     /* a still image, 32 x 32 */
-  KP_OLED_ANIM_HEART = 22,     /* a still image, 32 x 32 */
+  KP_OLED_ANIM_ALIEN = 21, /* retired: was a still image, 32 x 32 */
+  KP_OLED_ANIM_HEART = 22, /* retired: was a still image, 32 x 32 */
   KP_OLED_ANIM_KEYBOARD = 23,  /* a still image, 32 x 64 */
-  KP_OLED_ANIM_PULSAR = 24,    /* a still image, 32 x 128 */
-  KP_OLED_ANIM_ROCKET = 25,    /* a still image, 32 x 64 */
+  KP_OLED_ANIM_PULSAR = 24, /* retired: was a still image, 32 x 128 */
+  KP_OLED_ANIM_ROCKET = 25, /* retired: was a still image, 32 x 64 */
 
   /* The second batch: 20 animations (26 to 45), then 20 still images (46 to 65), with
    * the same rules. */
@@ -207,26 +251,26 @@ enum kp_oled_anim_kind {
   KP_OLED_ANIM_EYE = 44,        /* 24 frames, 32 x 32 */
   KP_OLED_ANIM_KEYWAVE = 45,    /* 24 frames, 32 x 64 */
 
-  KP_OLED_ANIM_COFFEE = 46,     /* a still image, 32 x 64 */
-  KP_OLED_ANIM_CACTUS = 47,     /* a still image, 32 x 64 */
-  KP_OLED_ANIM_LIGHTHOUSE = 48, /* a still image, 32 x 128 */
+  KP_OLED_ANIM_COFFEE = 46, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_CACTUS = 47, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_LIGHTHOUSE = 48, /* retired: was a still image, 32 x 128 */
   KP_OLED_ANIM_MOON_CAT = 49,   /* a still image, 32 x 64 */
-  KP_OLED_ANIM_ROBOT = 50,      /* a still image, 32 x 64 */
+  KP_OLED_ANIM_ROBOT = 50, /* retired: was a still image, 32 x 64 */
   KP_OLED_ANIM_PLANET = 51,     /* a still image, 32 x 64 */
-  KP_OLED_ANIM_CASTLE = 52,     /* a still image, 32 x 64 */
-  KP_OLED_ANIM_TREE = 53,       /* a still image, 32 x 128 */
-  KP_OLED_ANIM_SKULL = 54,      /* a still image, 32 x 64 */
-  KP_OLED_ANIM_SWORD = 55,      /* a still image, 32 x 128 */
-  KP_OLED_ANIM_KEY = 56,        /* a still image, 32 x 64 */
-  KP_OLED_ANIM_ANTENNA = 57,    /* a still image, 32 x 128 */
-  KP_OLED_ANIM_POTION = 58,     /* a still image, 32 x 64 */
-  KP_OLED_ANIM_SAILBOAT = 59,   /* a still image, 32 x 64 */
-  KP_OLED_ANIM_COMPASS = 60,    /* a still image, 32 x 32 */
-  KP_OLED_ANIM_CROWN = 61,      /* a still image, 32 x 32 */
-  KP_OLED_ANIM_CASSETTE = 62,   /* a still image, 32 x 32 */
-  KP_OLED_ANIM_FLOPPY = 63,     /* a still image, 32 x 32 */
-  KP_OLED_ANIM_PHASES = 64,     /* a still image, 32 x 128 */
-  KP_OLED_ANIM_MUSHROOM = 65,   /* a still image, 32 x 32 */
+  KP_OLED_ANIM_CASTLE = 52, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_TREE = 53, /* retired: was a still image, 32 x 128 */
+  KP_OLED_ANIM_SKULL = 54, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_SWORD = 55, /* retired: was a still image, 32 x 128 */
+  KP_OLED_ANIM_KEY = 56, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_ANTENNA = 57, /* retired: was a still image, 32 x 128 */
+  KP_OLED_ANIM_POTION = 58, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_SAILBOAT = 59, /* retired: was a still image, 32 x 64 */
+  KP_OLED_ANIM_COMPASS = 60, /* retired: was a still image, 32 x 32 */
+  KP_OLED_ANIM_CROWN = 61, /* retired: was a still image, 32 x 32 */
+  KP_OLED_ANIM_CASSETTE = 62, /* retired: was a still image, 32 x 32 */
+  KP_OLED_ANIM_FLOPPY = 63, /* retired: was a still image, 32 x 32 */
+  KP_OLED_ANIM_PHASES = 64, /* retired: was a still image, 32 x 128 */
+  KP_OLED_ANIM_MUSHROOM = 65, /* retired: was a still image, 32 x 32 */
 };
 
 #define KP_OLED_ANIM_KIND_COUNT 66
@@ -240,12 +284,74 @@ enum kp_oled_mix {
   KP_OLED_MIX_INVERT = 1,
 };
 
+/* The values of the settings that say when something goes off (ids 3, 7 and 9). */
 enum kp_display_off_mode {
   KP_DISPLAY_OFF_NEVER = 0,
-  /* Only while USB is not connected to this half. */
+  /* Only while USB is not connected to this half; on the peripheral, to the
+   * keyboard: the central counts too. */
   KP_DISPLAY_OFF_ON_BATTERY = 1,
   KP_DISPLAY_OFF_ALWAYS = 2,
 };
+
+/* True for a kind of KP_OLED_R_ANIM_KIND that was retired: it has a number but no
+ * picture. Pure; usable from any context. */
+static inline bool kp_oled_anim_kind_retired(int32_t kind) {
+  switch (kind) {
+  case KP_OLED_ANIM_VIM:
+  case KP_OLED_ANIM_VIP_MARCOS:
+  case KP_OLED_ANIM_ALIEN:
+  case KP_OLED_ANIM_HEART:
+  case KP_OLED_ANIM_PULSAR:
+  case KP_OLED_ANIM_ROCKET:
+  case KP_OLED_ANIM_COFFEE:
+  case KP_OLED_ANIM_CACTUS:
+  case KP_OLED_ANIM_LIGHTHOUSE:
+  case KP_OLED_ANIM_ROBOT:
+    return true;
+  default:
+    /* 52 to 65: castle, tree, skull, sword, key, antenna, potion, sailboat,
+     * compass, crown, cassette, floppy, phases and mushroom. */
+    return kind >= KP_OLED_ANIM_CASTLE && kind <= KP_OLED_ANIM_MUSHROOM;
+  }
+}
+
+/* Where the screens put their picture at step `step` of the pixel shift
+ * (KP_DISPLAY_SHIFT), as the offset (dx, dy) from its place, in pixels: at most `px`
+ * (1 to 4) to each side. The walk goes over the (2 * px + 1) x (2 * px + 1) squares
+ * row by row (the odd rows from the right) and then back the way it came, so the
+ * picture only ever moves one pixel at a time (nothing jumps) and every square gets
+ * its turn. Step 0 is the middle: the picture is where it started. A `px` of 0 or
+ * less keeps the picture where it is. Pure. */
+static inline void kp_display_shift_offset(uint32_t step, int32_t px, int32_t *dx,
+                                           int32_t *dy) {
+  if (px <= 0) {
+    *dx = 0;
+    *dy = 0;
+    return;
+  }
+
+  const uint32_t side = 2u * (uint32_t)px + 1u;
+  const uint32_t cells = side * side;
+  const uint32_t period = 2u * (cells - 1u);
+  /* The middle square, whichever way its row is walked. */
+  const uint32_t middle = (uint32_t)px * side + (uint32_t)px;
+  uint32_t k = (step % period + middle) % period;
+
+  /* Out along the walk, then back the way it came. */
+  if (k >= cells) {
+    k = period - k;
+  }
+
+  const uint32_t row = k / side;
+  uint32_t col = k % side;
+
+  if (row & 1u) {
+    col = side - 1u - col;
+  }
+
+  *dx = (int32_t)col - px;
+  *dy = (int32_t)row - px;
+}
 
 /* The current value of a setting, or 0 for an id that does not exist. Any
  * context; the value is whatever was loaded, received or set last. */

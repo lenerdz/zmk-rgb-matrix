@@ -21,11 +21,17 @@
  *
  *   - Contrast: display_set_contrast() of this half's screen, one setting per
  *     half. Applied shortly after boot and at every change.
- *   - Screen off: the module blanks the screen by itself, after the keyboard has
- *     been idle for the configured time and, in the "only on battery" mode, only
- *     while USB is not connected to this half. This replaces ZMK's own blanking,
+ *   - Screen off, dimming and the lights going off: the module counts the idle time
+ *     itself (idle_policy.c). The screen is blanked after the configured time and,
+ *     in the "only on battery" mode, only while the keyboard has no USB; it dims
+ *     (a lower contrast) after another time. This replaces ZMK's own blanking,
  *     which cannot tell USB from battery (CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE has to
- *     be off). Any activity wakes the screen.
+ *     be off). Any activity wakes the screen, and so does a change of any setting.
+ *     The same idle time turns the LEDs under the keys and the underglow off
+ *     (rgb_matrix.c).
+ *   - Pixel shift: read by the zmk-nice-oled screens with kp_display_setting_get();
+ *     they move the picture one pixel at a time along the walk of
+ *     kp_display_shift_offset().
  *   - Toast: read by the zmk-nice-oled toast widget with kp_display_setting_get().
  *   - OLED layout (CONFIG_KEYPAW_OLED_LAYOUT): which widgets of the zmk-nice-oled
  *     screens are drawn, where, and which animation the right screen plays. The
@@ -53,19 +59,14 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 
-#include <zmk/activity.h>
 #include <zmk/display.h>
 #include <zmk/event_manager.h>
-#include <zmk/events/activity_state_changed.h>
 #if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
 #include <zmk/events/display_settings_changed.h>
 #endif
-#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-#include <zmk/events/usb_conn_state_changed.h>
-#include <zmk/usb.h>
-#endif
 
 #include "display_settings.h"
+#include "idle_policy.h"
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -76,19 +77,12 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define KP_DISPLAY_PERIPHERAL                                                  \
   (IS_ENABLED(CONFIG_ZMK_SPLIT) && !IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL))
 
-/* ZMK goes idle after this many seconds without activity. */
-#define KP_DISPLAY_IDLE_S MAX(1, CONFIG_ZMK_IDLE_TIMEOUT / 1000)
-
 /* The contrast the SSD1306 driver sets at boot. */
 #ifdef CONFIG_SSD1306_DEFAULT_CONTRAST
 #define KP_DISPLAY_CONTRAST_DEFAULT CONFIG_SSD1306_DEFAULT_CONTRAST
 #else
 #define KP_DISPLAY_CONTRAST_DEFAULT 128
 #endif
-
-/* After a change made in ZMK Studio the screen wakes and stays on at least this
- * long, so the change can be seen. */
-#define KP_DISPLAY_WAKE_MIN_S 10
 
 struct kp_display_def {
   uint8_t id;
@@ -124,11 +118,10 @@ struct kp_display_def {
 #else
 #define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_CRYSTAL
 #endif
-#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM)
-#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_VIM
-#elif IS_ENABLED(CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIP_MARCOS)
-#define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_VIP_MARCOS
 #else
+/* The two still images of the upstream shield (vim and vip_marcos) were retired
+ * from the pictures: with them chosen in the build, the default is the crystal
+ * too, never a kind that is retired. */
 #define KP_OLED_ANIM_KIND_DEFAULT KP_OLED_ANIM_CRYSTAL
 #endif
 
@@ -162,12 +155,29 @@ static const struct kp_display_def kp_display_defs[] = {
     {KP_DISPLAY_LEFT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT, false},
     {KP_DISPLAY_RIGHT_CONTRAST, 0, 255, KP_DISPLAY_CONTRAST_DEFAULT, true},
     {KP_DISPLAY_OFF_MODE, KP_DISPLAY_OFF_NEVER, KP_DISPLAY_OFF_ALWAYS,
-     KP_DISPLAY_OFF_NEVER, true},
-    {KP_DISPLAY_OFF_AFTER_S, KP_DISPLAY_IDLE_S, 3600,
-     MAX(60, KP_DISPLAY_IDLE_S), true},
+     CONFIG_KEYPAW_DISPLAY_OFF_MODE_DEFAULT, true},
+    {KP_DISPLAY_OFF_AFTER_S, 10, 3600, CONFIG_KEYPAW_DISPLAY_OFF_AFTER_S_DEFAULT,
+     true},
     {KP_DISPLAY_TOAST, 0, 1, 1, true},
     {KP_DISPLAY_TOAST_MS, 500, 5000, CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT,
      true},
+    /* When the LEDs go off, and the anti burn-in (ids 7 to 15). The peripheral
+     * applies all of them. */
+    {KP_DISPLAY_KEYS_OFF_MODE, KP_DISPLAY_OFF_NEVER, KP_DISPLAY_OFF_ALWAYS,
+     CONFIG_KEYPAW_DISPLAY_KEYS_OFF_MODE_DEFAULT, true},
+    {KP_DISPLAY_KEYS_OFF_AFTER_S, 10, 3600,
+     CONFIG_KEYPAW_DISPLAY_KEYS_OFF_AFTER_S_DEFAULT, true},
+    {KP_DISPLAY_GLOW_OFF_MODE, KP_DISPLAY_OFF_NEVER, KP_DISPLAY_OFF_ALWAYS,
+     CONFIG_KEYPAW_DISPLAY_GLOW_OFF_MODE_DEFAULT, true},
+    {KP_DISPLAY_GLOW_OFF_AFTER_S, 10, 3600,
+     CONFIG_KEYPAW_DISPLAY_GLOW_OFF_AFTER_S_DEFAULT, true},
+    {KP_DISPLAY_SHIFT, 0, 1, CONFIG_KEYPAW_DISPLAY_SHIFT_DEFAULT, true},
+    {KP_DISPLAY_SHIFT_EVERY_S, 10, 3600,
+     CONFIG_KEYPAW_DISPLAY_SHIFT_EVERY_S_DEFAULT, true},
+    {KP_DISPLAY_SHIFT_PX, 1, 4, CONFIG_KEYPAW_DISPLAY_SHIFT_PX_DEFAULT, true},
+    {KP_DISPLAY_DIM_AFTER_S, 0, 3600, CONFIG_KEYPAW_DISPLAY_DIM_AFTER_S_DEFAULT,
+     true},
+    {KP_DISPLAY_DIM_LEVEL, 5, 90, CONFIG_KEYPAW_DISPLAY_DIM_LEVEL_DEFAULT, true},
 #if IS_ENABLED(CONFIG_KEYPAW_OLED_LAYOUT)
     /* Right screen. */
 #if !IS_ENABLED(CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_SMART_BATTERY)
@@ -273,9 +283,18 @@ static int kp_display_index(uint8_t id) {
   return -ENOENT;
 }
 
+/* Whether `value` is one the entry accepts: inside its range and, for the kind of
+ * picture, one that was not retired (a retired kind has a number but no picture;
+ * see enum kp_oled_anim_kind). */
 static bool kp_display_in_range(size_t index, int32_t value) {
-  return value >= kp_display_defs[index].min &&
-         value <= kp_display_defs[index].max;
+  if (value < kp_display_defs[index].min || value > kp_display_defs[index].max) {
+    return false;
+  }
+  if (kp_display_defs[index].id == KP_OLED_R_ANIM_KIND &&
+      kp_oled_anim_kind_retired(value)) {
+    return false;
+  }
+  return true;
 }
 
 int32_t kp_display_setting_get(enum kp_display_setting_id id) {
@@ -381,8 +400,15 @@ static int kp_display_load_cb(const char *name, size_t len,
   if (rc < 0) {
     return rc;
   }
-  if (rc == sizeof(value) && kp_display_in_range((size_t)index, value)) {
-    kp_display_values[index] = value;
+  if (rc == sizeof(value)) {
+    if (kp_display_in_range((size_t)index, value)) {
+      kp_display_values[index] = value;
+    } else {
+      /* Not a value any more (a picture that was retired, a range that shrank):
+       * the entry keeps its default, and the save that follows deletes the
+       * record, as it does for any setting that is at its default. */
+      kp_display_request_save((size_t)index);
+    }
   }
   return 0;
 }
@@ -407,132 +433,66 @@ static void kp_display_submit(struct k_work *work) {
   }
 }
 
-static void kp_display_contrast_handler(struct k_work *work) {
+/* The contrast the screen should have now: the one set for this half, and a lower
+ * one while the idle policy has the screen dimmed (the anti burn-in). */
+static uint8_t kp_display_wanted_contrast(void) {
+  const uint8_t base = (uint8_t)kp_display_setting_get(
+      KP_DISPLAY_PERIPHERAL ? KP_DISPLAY_RIGHT_CONTRAST
+                            : KP_DISPLAY_LEFT_CONTRAST);
+
+  if (!kp_idle_dimmed()) {
+    return base;
+  }
+  return kp_idle_dim_contrast(
+      base, (uint32_t)kp_display_setting_get(KP_DISPLAY_DIM_LEVEL));
+}
+
+/* Puts the screen as the settings and the idle policy (idle_policy.c) say: the
+ * contrast first, dimmed or not, then on or off, so that a screen that wakes up
+ * does not flash at the dimmed contrast. It states what is wanted, not what
+ * changed, so it can be submitted for any reason and as often as needed. */
+static void kp_display_apply_handler(struct k_work *work) {
   ARG_UNUSED(work);
 
   if (!device_is_ready(kp_display_dev)) {
     return;
   }
 
-  int32_t contrast = kp_display_setting_get(
-      KP_DISPLAY_PERIPHERAL ? KP_DISPLAY_RIGHT_CONTRAST
-                            : KP_DISPLAY_LEFT_CONTRAST);
-  int err = display_set_contrast(kp_display_dev, (uint8_t)contrast);
+  int err = display_set_contrast(kp_display_dev, kp_display_wanted_contrast());
 
   if (err < 0) {
     LOG_WRN("Setting the display contrast failed (err %d)", err);
   }
-}
 
-static K_WORK_DEFINE(kp_display_contrast_work, kp_display_contrast_handler);
+  const bool off = kp_idle_screen_off();
 
-static bool kp_display_usb_powered(void) {
-#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-  return zmk_usb_is_powered();
-#else
-  return false;
-#endif
-}
-
-/* True while the screen should be off: the keyboard is idle and the mode allows
- * it. Any context. */
-static bool kp_display_blank_wanted(void) {
-  if (zmk_activity_get_state() == ZMK_ACTIVITY_ACTIVE) {
-    return false;
-  }
-
-  switch (kp_display_setting_get(KP_DISPLAY_OFF_MODE)) {
-  case KP_DISPLAY_OFF_ALWAYS:
-    return true;
-  case KP_DISPLAY_OFF_ON_BATTERY:
-    return !kp_display_usb_powered();
-  default:
-    return false;
-  }
-}
-
-static void kp_display_blank_handler(struct k_work *work) {
-  ARG_UNUSED(work);
-
-  if (kp_display_blanked || !kp_display_blank_wanted() ||
-      !device_is_ready(kp_display_dev)) {
+  if (off == kp_display_blanked) {
     return;
   }
 
-  int err = display_blanking_on(kp_display_dev);
+  err = off ? display_blanking_on(kp_display_dev)
+            : display_blanking_off(kp_display_dev);
 
   if (err < 0) {
-    LOG_WRN("Turning the display off failed (err %d)", err);
+    LOG_WRN("Turning the display %s failed (err %d)", off ? "off" : "on", err);
     return;
   }
-  kp_display_blanked = true;
+  kp_display_blanked = off;
 }
 
-static K_WORK_DELAYABLE_DEFINE(kp_display_blank_work, kp_display_blank_handler);
+static K_WORK_DEFINE(kp_display_apply_work, kp_display_apply_handler);
 
-static void kp_display_unblank_handler(struct k_work *work) {
-  ARG_UNUSED(work);
+/* The idle policy turned the screen off or on, or dimmed it or not. */
+void kp_display_idle_changed(void) { kp_display_submit(&kp_display_apply_work); }
 
-  if (!kp_display_blanked) {
-    return;
-  }
-
-  int err = display_blanking_off(kp_display_dev);
-
-  if (err < 0) {
-    LOG_WRN("Turning the display on failed (err %d)", err);
-    return;
-  }
-  kp_display_blanked = false;
-}
-
-static K_WORK_DEFINE(kp_display_unblank_work, kp_display_unblank_handler);
-
-/* Brings the screen in line with the activity state, the USB state and the
- * settings: turns it back on when it should not be off, and arms the timer that
- * turns it off when it should. `wake` is for a change the user just made: the
- * screen turns on and stays on for at least KP_DISPLAY_WAKE_MIN_S. */
-static void kp_display_policy_update(bool wake) {
-  if (!kp_display_blank_wanted()) {
-    k_work_cancel_delayable(&kp_display_blank_work);
-    kp_display_submit(&kp_display_unblank_work);
-    return;
-  }
-
-  int32_t after_idle_s =
-      kp_display_setting_get(KP_DISPLAY_OFF_AFTER_S) - KP_DISPLAY_IDLE_S;
-  uint32_t delay_s = (uint32_t)MAX(after_idle_s, 0);
-
-  if (wake) {
-    delay_s = MAX(delay_s, (uint32_t)KP_DISPLAY_WAKE_MIN_S);
-    kp_display_submit(&kp_display_unblank_work);
-    k_work_reschedule_for_queue(zmk_display_work_q(), &kp_display_blank_work,
-                                K_SECONDS(delay_s));
-  } else {
-    /* An armed timer keeps its time. */
-    k_work_schedule_for_queue(zmk_display_work_q(), &kp_display_blank_work,
-                              K_SECONDS(delay_s));
-  }
-}
-
-static int kp_display_event_handler(const zmk_event_t *eh) {
-  ARG_UNUSED(eh);
-  kp_display_policy_update(false);
-  return ZMK_EV_EVENT_BUBBLE;
-}
-
-ZMK_LISTENER(kp_display_settings, kp_display_event_handler);
-ZMK_SUBSCRIPTION(kp_display_settings, zmk_activity_state_changed);
-#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-ZMK_SUBSCRIPTION(kp_display_settings, zmk_usb_conn_state_changed);
-#endif
-
-/* The saved contrast is applied once the display has been set up. */
+/* The saved settings are applied once the display has been set up. */
 static void kp_display_boot_handler(struct k_work *work) {
   ARG_UNUSED(work);
-  kp_display_submit(&kp_display_contrast_work);
+  kp_display_submit(&kp_display_apply_work);
   /* The widgets drew with the defaults if they came up before the load. */
   kp_display_notify_layout(0);
+  /* The idle policy reads the settings that were loaded. */
+  kp_idle_config_changed();
 }
 
 static K_WORK_DELAYABLE_DEFINE(kp_display_boot_work, kp_display_boot_handler);
@@ -545,12 +505,8 @@ static void kp_display_apply_changed(uint8_t id) {
   switch (id) {
   case KP_DISPLAY_LEFT_CONTRAST:
   case KP_DISPLAY_RIGHT_CONTRAST:
-    kp_display_submit(&kp_display_contrast_work);
-    kp_display_policy_update(true);
-    break;
-  case KP_DISPLAY_OFF_MODE:
-  case KP_DISPLAY_OFF_AFTER_S:
-    kp_display_policy_update(true);
+  case KP_DISPLAY_DIM_LEVEL:
+    kp_display_submit(&kp_display_apply_work);
     break;
   default:
     break;
@@ -559,8 +515,18 @@ static void kp_display_apply_changed(uint8_t id) {
 
 #else /* !DT_HAS_CHOSEN(zephyr_display) */
 
+void kp_display_idle_changed(void) {}
+
+static void kp_display_boot_handler(struct k_work *work) {
+  ARG_UNUSED(work);
+  /* No screen, but the lights follow the idle policy all the same. */
+  kp_idle_config_changed();
+}
+
+static K_WORK_DELAYABLE_DEFINE(kp_display_boot_work, kp_display_boot_handler);
+
 static void kp_display_schedule_boot_apply(uint32_t delay_ms) {
-  ARG_UNUSED(delay_ms);
+  k_work_reschedule(&kp_display_boot_work, K_MSEC(delay_ms));
 }
 
 static void kp_display_apply_changed(uint8_t id) { ARG_UNUSED(id); }
@@ -636,6 +602,11 @@ static void kp_display_changed(size_t index) {
   kp_display_request_save(index);
   kp_display_apply_changed(kp_display_defs[index].id);
   kp_display_notify_layout(kp_display_defs[index].id);
+  /* A change counts as activity (somebody is looking at the screens, so they wake
+   * and stay on), and the idle policy reads the settings again, whichever of them
+   * it was: it is cheaper to evaluate than to tell which ones matter. */
+  kp_idle_note_activity();
+  kp_idle_config_changed();
   /* Does nothing on a peripheral. */
   kp_rgb_sync_display_kick();
 }

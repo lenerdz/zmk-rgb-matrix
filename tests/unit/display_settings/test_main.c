@@ -12,11 +12,17 @@
 #include "stub_all.h"
 
 #include "display_settings.h"
+#include "idle_policy.h"
 
 void sim_advance(int64_t ms);
 int64_t sim_now(void);
+void trace_clear(void);
+extern char g_display_trace[64];
 extern int g_screen_on, g_contrast, g_blank_on_calls, g_blank_off_calls, g_contrast_calls;
 extern int g_save_calls, g_delete_calls, g_kicks;
+/* What the idle policy says (stub_idle.c) and what was asked of it. */
+extern bool g_idle_screen_off, g_idle_dimmed;
+extern int g_idle_activity_calls, g_idle_config_calls;
 struct record {
   char key[48];
   int32_t value;
@@ -66,18 +72,6 @@ static void boot_with(const struct fake_rec *recs, size_t count) {
 
 static void boot(void) { boot_with(NULL, 0); }
 
-static void event(void) { g_listener_cb(NULL); }
-
-static void go_idle(void) {
-  g_activity = ZMK_ACTIVITY_IDLE;
-  event();
-}
-
-static void go_active(void) {
-  g_activity = ZMK_ACTIVITY_ACTIVE;
-  event();
-}
-
 static int store_count(void) {
   int n = 0;
   for (size_t i = 0; i < 64; i++) {
@@ -106,17 +100,18 @@ static void s_defaults(void) {
   CHECK(kp_display_setting_get(KP_DISPLAY_TOAST) == 1);
   CHECK(kp_display_setting_get(KP_DISPLAY_TOAST_MS) == 1500);
 #ifndef CONFIG_KEYPAW_OLED_LAYOUT
-  CHECK(kp_display_setting_count() == 6);
+  CHECK(kp_display_setting_count() == 15);
 #endif
 
   struct kp_display_setting_info info;
   CHECK(kp_display_setting_info(3, &info) == 0);
-  CHECK(info.id == 4 && info.min == 30 && info.max == 3600 && info.default_value == 60 &&
+  CHECK(info.id == 4 && info.min == 10 && info.max == 3600 && info.default_value == 60 &&
         info.value == 60);
   CHECK(kp_display_setting_info(0, &info) == 0);
   CHECK(info.id == 1 && info.min == 0 && info.max == 255 && info.default_value == 128);
 #ifndef CONFIG_KEYPAW_OLED_LAYOUT
-  CHECK(kp_display_setting_info(6, &info) == -EINVAL);
+  CHECK(kp_display_setting_info(14, &info) == 0 && info.id == 15);
+  CHECK(kp_display_setting_info(15, &info) == -EINVAL);
 #endif
   CHECK(kp_display_setting_info(kp_display_setting_count(), &info) == -EINVAL);
   CHECK(g_screen_on == 1 && g_blank_on_calls == 0);
@@ -160,8 +155,9 @@ static void s_debounce_batch(void) {
 
 static void s_range(void) {
   boot();
-  CHECK(kp_display_setting_set(4, 10) == -EINVAL);
-  CHECK(kp_display_setting_set(9, 1) == -ENOENT);
+  CHECK(kp_display_setting_set(4, 9) == -EINVAL);
+  CHECK(kp_display_setting_set(4, 3601) == -EINVAL);
+  CHECK(kp_display_setting_set(200, 1) == -ENOENT);
   CHECK(kp_display_setting_set(0, 1) == -ENOENT);
   CHECK(kp_display_setting_set(1, 256) == -EINVAL);
   CHECK(kp_display_setting_set(1, -1) == -EINVAL);
@@ -169,7 +165,7 @@ static void s_range(void) {
   CHECK(kp_display_setting_set(5, 2) == -EINVAL);
   CHECK(kp_display_setting_set(6, 499) == -EINVAL);
   CHECK(kp_display_setting_set(6, 5001) == -EINVAL);
-  CHECK(kp_display_setting_set(4, 30) == 0);
+  CHECK(kp_display_setting_set(4, 10) == 0);
   CHECK(kp_display_setting_set(4, 3600) == 0);
   CHECK(kp_display_setting_get(KP_DISPLAY_OFF_AFTER_S) == 3600);
   /* a rejected value changes nothing */
@@ -177,121 +173,160 @@ static void s_range(void) {
   CHECK(kp_display_setting_get(KP_DISPLAY_TOAST_MS) == 1500);
 }
 
-static void s_never(void) {
+/* The screen does what the idle policy says (stub_idle.c): off and on, and a change of
+ * the contrast while it is off keeps it off. */
+static void s_screen_follows_idle(void) {
   boot();
-  go_idle();
-  sim_advance(SEC(120));
   CHECK(g_screen_on == 1 && g_blank_on_calls == 0);
-  go_active();
-  CHECK(g_screen_on == 1);
-}
 
-static void s_always(void) {
-  boot();
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 2) == 0);
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_AFTER_S, 60) == 0);
-  sim_advance(SEC(15));
-  CHECK(g_screen_on == 1); /* active: stays on */
-  CHECK(g_blank_on_calls == 0);
-  go_idle();
-  sim_advance(SEC(29));
-  CHECK(g_screen_on == 1);
-  sim_advance(1100);
+  g_idle_screen_off = true;
+  kp_display_idle_changed();
   CHECK(g_screen_on == 0 && g_blank_on_calls == 1);
-  go_active();
-  CHECK(g_screen_on == 1);
-  /* activity again, then idle again: off again after the same time */
-  go_idle();
-  sim_advance(SEC(30) + 100);
-  CHECK(g_screen_on == 0);
+  /* asked again for the same state: nothing to do */
+  kp_display_idle_changed();
+  CHECK(g_blank_on_calls == 1 && g_blank_off_calls == 0);
+
+  CHECK(kp_display_setting_set(KP_DISPLAY_LEFT_CONTRAST, 90) == 0);
+  CHECK(g_screen_on == 0 && g_contrast == 90 && g_blank_off_calls == 0);
+
+  g_idle_screen_off = false;
+  kp_display_idle_changed();
+  CHECK(g_screen_on == 1 && g_blank_off_calls == 1);
   CHECK(g_log_warnings == 0);
 }
 
-static void s_always_min(void) {
-  /* after = the idle time of ZMK: the screen goes off at the idle event */
+/* A screen that wakes up gets its contrast before it lights, so that it does not flash
+ * at the dimmed one; and the other way, a screen that goes dim and off sets the dim
+ * contrast first and then goes off. */
+static void s_wake_order(void) {
   boot();
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 2) == 0);
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_AFTER_S, 30) == 0);
-  sim_advance(SEC(11));
-  go_idle();
-  sim_advance(10);
-  CHECK(g_screen_on == 0);
+  g_idle_dimmed = true;
+  g_idle_screen_off = true;
+  trace_clear();
+  kp_display_idle_changed();
+  CHECK(strcmp(g_display_trace, "CF") == 0);
+  CHECK(g_contrast == 32);
+
+  g_idle_dimmed = false;
+  g_idle_screen_off = false;
+  trace_clear();
+  kp_display_idle_changed();
+  CHECK(strcmp(g_display_trace, "CN") == 0);
+  CHECK(g_contrast == 128 && g_screen_on == 1);
 }
 
-static void s_battery(void) {
+/* The dimming: a percent of the contrast of this half, followed while it lasts. */
+static void s_dim(void) {
   boot();
-  g_usb_powered = 1;
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 1) == 0);
-  go_idle();
-  sim_advance(SEC(100));
-  CHECK(g_screen_on == 1 && g_blank_on_calls == 0);
-  g_usb_powered = 0;
-  event(); /* the USB event */
-  sim_advance(SEC(29));
-  CHECK(g_screen_on == 1);
-  sim_advance(SEC(2));
-  CHECK(g_screen_on == 0);
-  g_usb_powered = 1;
-  event();
-  CHECK(g_screen_on == 1);
-  sim_advance(SEC(100));
-  CHECK(g_screen_on == 1);
+  CHECK(kp_display_setting_get(KP_DISPLAY_DIM_AFTER_S) == 120);
+  CHECK(kp_display_setting_get(KP_DISPLAY_DIM_LEVEL) == 25);
+  CHECK(g_contrast == 128);
+
+  g_idle_dimmed = true;
+  kp_display_idle_changed();
+  CHECK(g_contrast == 32 && g_screen_on == 1);
+
+  /* a change of the level applies at once, and so does one of the contrast */
+  CHECK(kp_display_setting_set(KP_DISPLAY_DIM_LEVEL, 50) == 0);
+  CHECK(g_contrast == 64);
+  CHECK(kp_display_setting_set(KP_DISPLAY_LEFT_CONTRAST, 200) == 0);
+  CHECK(g_contrast == 100);
+
+  g_idle_dimmed = false;
+  kp_display_idle_changed();
+  CHECK(g_contrast == 200);
+
+  /* dim is never black: 1 at least, unless the contrast is 0 */
+  CHECK(kp_display_setting_set(KP_DISPLAY_LEFT_CONTRAST, 3) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_DIM_LEVEL, 5) == 0);
+  g_idle_dimmed = true;
+  kp_display_idle_changed();
+  CHECK(g_contrast == 1);
+  CHECK(kp_display_setting_set(KP_DISPLAY_LEFT_CONTRAST, 0) == 0);
+  CHECK(g_contrast == 0);
+  CHECK(g_log_warnings == 0);
 }
 
-static void s_wake_while_blanked(void) {
+/* A change counts as activity, and the idle policy reads the settings again. */
+static void s_activity_on_change(void) {
   boot();
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 2) == 0);
-  go_idle();
-  sim_advance(SEC(31));
-  CHECK(g_screen_on == 0);
-  /* a contrast change wakes the screen and it goes off again 30 s later (60 - idle 30) */
-  CHECK(kp_display_setting_set(KP_DISPLAY_LEFT_CONTRAST, 100) == 0);
-  CHECK(g_screen_on == 1 && g_contrast == 100);
-  sim_advance(SEC(29) + 900);
-  CHECK(g_screen_on == 1);
-  sim_advance(200);
-  CHECK(g_screen_on == 0);
-  /* with after = idle, the wake still lasts 10 s */
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_AFTER_S, 30) == 0);
-  CHECK(g_screen_on == 1);
-  sim_advance(SEC(9) + 900);
-  CHECK(g_screen_on == 1);
-  sim_advance(200);
-  CHECK(g_screen_on == 0);
+  /* once at boot, when the saved settings have been loaded */
+  CHECK(g_idle_config_calls == 1);
+
+  int activity = g_idle_activity_calls;
+  int config = g_idle_config_calls;
+  CHECK(kp_display_setting_set(KP_DISPLAY_KEYS_OFF_AFTER_S, 120) == 0);
+  CHECK(g_idle_activity_calls == activity + 1 && g_idle_config_calls == config + 1);
+
+  /* the same value, a value out of range, an id that does not exist: nothing */
+  CHECK(kp_display_setting_set(KP_DISPLAY_KEYS_OFF_AFTER_S, 120) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_KEYS_OFF_AFTER_S, 5) == -EINVAL);
+  CHECK(kp_display_setting_set(200, 5) == -ENOENT);
+  CHECK(g_idle_activity_calls == activity + 1 && g_idle_config_calls == config + 1);
+
+  /* what the central sends to a peripheral is a change too */
+  CHECK(kp_display_settings_command(
+            RGB_DISPLAY_PARAM1(RGB_DISPLAY_SET_CMD, KP_DISPLAY_GLOW_OFF_MODE), 2) == 0);
+  CHECK(g_idle_activity_calls == activity + 2 && g_idle_config_calls == config + 2);
+  CHECK(kp_display_setting_get(KP_DISPLAY_GLOW_OFF_MODE) == 2);
 }
 
-static void s_back_to_never(void) {
-  boot();
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 2) == 0);
-  go_idle();
-  sim_advance(SEC(40));
-  CHECK(g_screen_on == 0);
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 0) == 0);
-  CHECK(g_screen_on == 1);
-  sim_advance(SEC(300));
-  CHECK(g_screen_on == 1);
-}
+/* The nine settings of the lights and the anti burn-in (ids 7 to 15). */
+static const struct {
+  uint8_t id;
+  int32_t min, max, def;
+} new_settings[] = {
+    {7, 0, 2, 1},    /* KEYS_OFF_MODE: on battery */
+    {8, 10, 3600, 300},  /* KEYS_OFF_AFTER_S */
+    {9, 0, 2, 1},    /* GLOW_OFF_MODE: on battery */
+    {10, 10, 3600, 300}, /* GLOW_OFF_AFTER_S */
+    {11, 0, 1, 1},   /* SHIFT: on */
+    {12, 10, 3600, 60},  /* SHIFT_EVERY_S */
+    {13, 1, 4, 2},   /* SHIFT_PX */
+    {14, 0, 3600, 120},  /* DIM_AFTER_S */
+    {15, 5, 90, 25}, /* DIM_LEVEL */
+};
 
-static void s_mode_change_while_idle(void) {
-  /* idle for a long time with mode never; then the mode changes to always */
+static void s_new_settings(void) {
   boot();
-  go_idle();
-  sim_advance(SEC(200));
-  CHECK(g_screen_on == 1);
-  CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 2) == 0);
-  CHECK(g_screen_on == 1);
-  /* delay is max(60 - 30, 10) = 30 s */
-  sim_advance(SEC(29));
-  CHECK(g_screen_on == 1);
-  sim_advance(SEC(2));
-  CHECK(g_screen_on == 0);
+  for (size_t i = 0; i < ARRAY_SIZE(new_settings); i++) {
+    const uint8_t id = new_settings[i].id;
+    struct kp_display_setting_info info;
+
+    CHECK(kp_display_setting_info(id - 1u, &info) == 0);
+    CHECK(info.id == id && info.min == new_settings[i].min &&
+          info.max == new_settings[i].max &&
+          info.default_value == new_settings[i].def && info.value == info.default_value);
+    CHECK(kp_display_setting_set(id, new_settings[i].min - 1) == -EINVAL);
+    CHECK(kp_display_setting_set(id, new_settings[i].max + 1) == -EINVAL);
+    CHECK(kp_display_setting_set(id, new_settings[i].min) == 0);
+    CHECK(kp_display_setting_set(id, new_settings[i].max) == 0);
+    CHECK(kp_display_setting_get((enum kp_display_setting_id)id) == new_settings[i].max);
+  }
+
+  /* what is not at its default is kept in the flash (all but the switch, whose
+   * maximum is its default) */
+  sim_advance(SEC(4));
+  CHECK(store_count() == 8);
+  CHECK(store_find("keypaw/display/11") == NULL);
+  struct record *r = store_find("keypaw/display/8");
+  CHECK(r != NULL && r->value == 3600 && r->len == 4);
+
+  CHECK(kp_display_settings_restore_defaults() == 0);
+  for (size_t i = 0; i < ARRAY_SIZE(new_settings); i++) {
+    CHECK(kp_display_setting_get((enum kp_display_setting_id)new_settings[i].id) ==
+          new_settings[i].def);
+  }
+  sim_advance(SEC(4));
+  CHECK(store_count() == 0);
+  CHECK(g_log_warnings == 0);
 }
 
 static void s_load(void) {
   static const struct fake_rec recs[] = {
       {"1", 300, 4},   /* out of range: ignored */
       {"3", 2, 4},     /* valid */
-      {"15", 5, 4},    /* unknown id: ignored */
+      {"200", 5, 4},   /* unknown id: ignored */
       {"4", 70, 2},    /* wrong length: ignored */
       {"x", 1, 4},     /* not a number: ignored */
       {"6", 2000, 4},  /* valid */
@@ -299,6 +334,10 @@ static void s_load(void) {
       {"5x", 0, 4},    /* garbage after the number: ignored */
       {"-3", 1, 4},    /* negative: ignored */
       {"256", 1, 4},   /* does not fit the 8 bits of an id: ignored */
+      {"8", 900, 4},   /* valid: the LEDs under the keys go off after 15 minutes */
+      {"13", 9, 4},    /* out of range (1 to 4): ignored */
+      {"14", 0, 4},    /* valid: never dim */
+      {"12", 5, 4},    /* below the minimum (10): ignored */
   };
   boot_with(recs, sizeof(recs) / sizeof(recs[0]));
   CHECK(kp_display_setting_get(KP_DISPLAY_LEFT_CONTRAST) == 128);
@@ -307,6 +346,10 @@ static void s_load(void) {
   CHECK(kp_display_setting_get(KP_DISPLAY_OFF_AFTER_S) == 60);
   CHECK(kp_display_setting_get(KP_DISPLAY_TOAST) == 1);
   CHECK(kp_display_setting_get(KP_DISPLAY_TOAST_MS) == 2000);
+  CHECK(kp_display_setting_get(KP_DISPLAY_KEYS_OFF_AFTER_S) == 900);
+  CHECK(kp_display_setting_get(KP_DISPLAY_SHIFT_PX) == 2);
+  CHECK(kp_display_setting_get(KP_DISPLAY_DIM_AFTER_S) == 0);
+  CHECK(kp_display_setting_get(KP_DISPLAY_SHIFT_EVERY_S) == 60);
   CHECK(g_log_warnings == 0);
 }
 
@@ -359,7 +402,7 @@ static void s_sync(void) {
     shadow[i] = KP_DISPLAY_SYNC_UNKNOWN;
   }
 
-  static const uint8_t expect[] = {2, 3, 4, 5, 6};
+  static const uint8_t expect[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
   uint32_t p1, p2;
   size_t sent = 0;
   int next = 0;
@@ -415,7 +458,7 @@ static void s_command(void) {
   CHECK(!RGB_DISPLAY_IS_CMD(0x100));
   CHECK(kp_display_settings_command(p1, 90) == 0);
   CHECK(kp_display_setting_get(KP_DISPLAY_OFF_AFTER_S) == 90);
-  CHECK(kp_display_settings_command(RGB_DISPLAY_PARAM1(RGB_DISPLAY_SET_CMD, 9), 1) == -ENOENT);
+  CHECK(kp_display_settings_command(RGB_DISPLAY_PARAM1(RGB_DISPLAY_SET_CMD, 200), 1) == -ENOENT);
   CHECK(kp_display_settings_command(p1, 5) == -EINVAL);
   /* a negative int32 carried as uint32 */
   CHECK(kp_display_settings_command(RGB_DISPLAY_PARAM1(RGB_DISPLAY_SET_CMD, 1), (uint32_t)-5) ==
@@ -487,7 +530,7 @@ static void s_layout_defaults(void) {
 
 #ifdef TEST_LEFT_WIDGETS
   /* the left screen */
-  CHECK(kp_display_setting_count() == 47);
+  CHECK(kp_display_setting_count() == 56);
   DEFAULT_IS(KP_OLED_L_OUTPUT_SHOW, 1);
   DEFAULT_IS(KP_OLED_L_OUTPUT_X, 0);
   DEFAULT_IS(KP_OLED_L_OUTPUT_Y, 34);
@@ -550,11 +593,12 @@ static void s_layout_defaults(void) {
 
   /* kp_display_setting_default is what restoring sets, whatever the value is now */
   int32_t kind_default = kp_display_setting_get(KP_OLED_R_ANIM_KIND);
-  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_VIM) == 0);
-  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_VIM);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KEYBOARD) == 0);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_KEYBOARD);
   CHECK(kp_display_setting_default(KP_OLED_R_ANIM_KIND) == kind_default);
   CHECK(kp_display_setting_default(KP_OLED_R_ANIM_X) == 18);
-  CHECK(kp_display_setting_default((enum kp_display_setting_id)7) == 0);
+  CHECK(kp_display_setting_default((enum kp_display_setting_id)7) == 1);
+  CHECK(kp_display_setting_default((enum kp_display_setting_id)200) == 0);
   CHECK(g_log_warnings == 0);
 }
 
@@ -567,23 +611,23 @@ static void s_layout_range(void) {
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_SHOW, 2) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_SHOW, -1) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
-  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_VIP_MARCOS) == 0);
-  /* the pictures that come after them: the first and the last of each batch */
+  /* the first and the last of each batch of pictures that were kept */
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_EQUALIZER) == 0);
-  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_ROCKET) == 0);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_WATERFALL) == 0);
-  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_MUSHROOM) == 0);
-  CHECK(KP_OLED_ANIM_ROCKET + 1 == KP_OLED_ANIM_WATERFALL);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_PLANET) == 0);
+  /* the numbers of the pictures that were retired stay taken, and they are not
+   * accepted: the last of them is the last number of all */
   CHECK(KP_OLED_ANIM_MUSHROOM == KP_OLED_ANIM_KIND_COUNT - 1);
+  CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_MUSHROOM) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_KIND_COUNT) == -EINVAL);
-  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_MUSHROOM);
+  CHECK(kp_display_setting_get(KP_OLED_R_ANIM_KIND) == KP_OLED_ANIM_PLANET);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60001) == -EINVAL);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, 60000) == 0);
   CHECK(kp_display_setting_set(KP_OLED_R_ANIM_MS, -1) == -EINVAL);
-  /* ids that no widget has: the gaps of the blocks, the toast switch that is
-   * setting 5, and what is past the last one */
-  CHECK(kp_display_setting_set(7, 1) == -ENOENT);
+  /* ids that no widget has: the gaps of the blocks, and what is past the last one
+   * (7 to 15 are the settings of the lights and the anti burn-in) */
   CHECK(kp_display_setting_set(21, 1) == -ENOENT);
+  CHECK(kp_display_setting_set(22, 1) == -ENOENT);
   CHECK(kp_display_setting_set(40, 1) == -ENOENT);
   CHECK(kp_display_setting_set(107, 1) == -ENOENT);
   CHECK(kp_display_setting_set(111, 1) == -ENOENT);
@@ -681,6 +725,10 @@ static void s_layout_event(void) {
   CHECK(kp_display_setting_set(KP_DISPLAY_OFF_MODE, 1) == 0);
   CHECK(kp_display_setting_set(KP_DISPLAY_TOAST, 0) == 0);
   CHECK(kp_display_setting_set(KP_DISPLAY_TOAST_MS, 2000) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_KEYS_OFF_MODE, 2) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_GLOW_OFF_AFTER_S, 600) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_DIM_LEVEL, 40) == 0);
+  CHECK(kp_display_setting_set(KP_DISPLAY_SHIFT_PX, 3) == 0);
   sim_advance(100);
   CHECK(g_layout_events == events);
 
@@ -752,7 +800,7 @@ static void s_layout_load(void) {
       {"32", 0, 4},      /* valid */
       {"41", 12, 2},     /* wrong length: ignored */
       {"107", 1, 4},     /* no such setting: ignored */
-      {"7", 1, 4},       /* ditto */
+      {"21", 1, 4},      /* ditto */
       {"256", 1, 4},     /* does not fit 8 bits: ignored */
   };
   boot_with(recs, sizeof(recs) / sizeof(recs[0]));
@@ -778,9 +826,10 @@ static void s_layout_sync(void) {
     shadow[i] = KP_DISPLAY_SYNC_UNKNOWN;
   }
 
-  static const uint8_t expect[] = {2,  3,   4,   5,  6,  16, 17, 18,
-                                   19, 20,  112, 113, 114, 115, 24, 25,
-                                   26, 32,  33,  34,  41,  42};
+  static const uint8_t expect[] = {2,  3,  4,  5,  6,   7,   8,   9,   10,  11,
+                                   12, 13, 14, 15, 16,  17,  18,  19,  20,  112,
+                                   113, 114, 115, 24,  25,  26,  32,  33,  34,  41,
+                                   42};
   uint32_t p1, p2;
   size_t sent = 0;
   int next = 0;
@@ -840,10 +889,64 @@ static void s_layout_command(void) {
   DEFAULT_IS(KP_OLED_R_ANIM_X, -25);
 }
 
+/* The pictures that were retired (24 of the 66 numbers): they stay numbered, they are
+ * not accepted as a kind, and the animations and the six stills that were kept are. */
+static void s_layout_retired(void) {
+  boot();
+  static const int retired[] = {5,  6,  21, 22, 24, 25, 46, 47, 48, 50, 52, 53,
+                                54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65};
+  static const int stills[] = {KP_OLED_ANIM_MOUNTAINS, KP_OLED_ANIM_SKYLINE,
+                               KP_OLED_ANIM_CIRCUIT,   KP_OLED_ANIM_KEYBOARD,
+                               KP_OLED_ANIM_MOON_CAT,  KP_OLED_ANIM_PLANET};
+
+  for (size_t i = 0; i < ARRAY_SIZE(retired); i++) {
+    CHECK(kp_oled_anim_kind_retired(retired[i]));
+    CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, retired[i]) == -EINVAL);
+  }
+  /* a rejected kind changes nothing */
+  DEFAULT_IS(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_CAT);
+
+  for (size_t i = 0; i < ARRAY_SIZE(stills); i++) {
+    CHECK(!kp_oled_anim_kind_retired(stills[i]));
+    CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, stills[i]) == 0);
+  }
+
+  /* every number is one or the other, and the count is the one the docs give */
+  int count = 0;
+  for (int kind = 0; kind < KP_OLED_ANIM_KIND_COUNT; kind++) {
+    if (kp_oled_anim_kind_retired(kind)) {
+      count++;
+    } else {
+      CHECK(kp_display_setting_set(KP_OLED_R_ANIM_KIND, kind) == 0);
+    }
+  }
+  CHECK(count == 24);
+  CHECK(!kp_oled_anim_kind_retired(-1));
+  CHECK(!kp_oled_anim_kind_retired(KP_OLED_ANIM_KIND_COUNT));
+  /* the default of a build is never a retired picture */
+  CHECK(!kp_oled_anim_kind_retired(kp_display_setting_default(KP_OLED_R_ANIM_KIND)));
+  CHECK(g_log_warnings == 0);
+}
+
+/* A retired kind that an earlier firmware saved is not loaded, and its record is
+ * deleted when the settings are written, as the record of any setting at its default
+ * is. */
+static void s_layout_retired_load(void) {
+  static const struct fake_rec recs[] = {{"19", KP_OLED_ANIM_ALIEN, 4}};
+  int32_t stale = KP_OLED_ANIM_ALIEN;
+
+  CHECK(settings_save_one("keypaw/display/19", &stale, sizeof(stale)) == 0);
+  CHECK(store_find("keypaw/display/19") != NULL);
+  boot_with(recs, 1);
+  DEFAULT_IS(KP_OLED_R_ANIM_KIND, KP_OLED_ANIM_CAT);
+  CHECK(store_find("keypaw/display/19") == NULL);
+  CHECK(g_log_warnings == 0);
+}
+
 /* The peripheral keeps only the settings of its own screen. */
 static void s_layout_peripheral(void) {
   boot();
-  CHECK(kp_display_setting_count() == 23);
+  CHECK(kp_display_setting_count() == 32);
   DEFAULT_IS(KP_OLED_R_ANIM_X, 18);
   CHECK(kp_display_setting_set(KP_OLED_L_LAYER_X, 5) == -ENOENT);
   CHECK(kp_display_setting_set(KP_OLED_L_OUTPUT_SHOW, 0) == -ENOENT);
@@ -883,13 +986,11 @@ static const struct scenario scenarios[] = {
     {"contrast_persist", s_contrast_persist},
     {"debounce_batch", s_debounce_batch},
     {"range", s_range},
-    {"never", s_never},
-    {"always", s_always},
-    {"always_min", s_always_min},
-    {"battery", s_battery},
-    {"wake_while_blanked", s_wake_while_blanked},
-    {"back_to_never", s_back_to_never},
-    {"mode_change_while_idle", s_mode_change_while_idle},
+    {"screen_follows_idle", s_screen_follows_idle},
+    {"wake_order", s_wake_order},
+    {"dim", s_dim},
+    {"activity_on_change", s_activity_on_change},
+    {"new_settings", s_new_settings},
     {"load", s_load},
     {"boot_apply", s_boot_apply},
     {"restore", s_restore},
@@ -903,6 +1004,8 @@ static const struct scenario scenarios[] = {
     {"layout_defaults", s_layout_defaults},
     {"layout_range", s_layout_range},
     {"layout_picture", s_layout_picture},
+    {"layout_retired", s_layout_retired},
+    {"layout_retired_load", s_layout_retired_load},
     {"layout_event", s_layout_event},
     {"layout_persist", s_layout_persist},
     {"layout_load", s_layout_load},

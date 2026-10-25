@@ -23,6 +23,7 @@
 
 #include <zmk/events/activity_state_changed.h>
 
+#include "idle_policy.h"
 #include "rgb_map_codec.h"
 #include "rgb_matrix_internal.h"
 
@@ -231,11 +232,56 @@ static struct kp_rgb_scene_runtime *kp_rgb_overlay_scene(const struct device *de
   return &kp_rgb_overlay_scenes[data->index];
 }
 
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+/* True when the strip has an LED under a key (`underglow` false) or one that is
+ * not (`underglow` true). */
+static bool kp_rgb_has_group_leds(bool underglow) {
+  for (size_t i = 0; i < KP_LED_COUNT; i++) {
+    if (((kp_map[i] & KP_RGB_NO_KEY_XY_FLAG) != 0) == underglow) {
+      return true;
+    }
+  }
+  return false;
+}
+#endif
+
 static bool kp_rgb_logical_on_locked(void) {
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+  /* The idle policy (idle_policy.c) has a limit for the LEDs under the keys and
+   * another for the underglow, so the strip is off when the user turned it off or
+   * every group it has is. ZMK's idle state is not looked at. */
+  return kp_rgb_controller.state.user_on &&
+         (KP_LED_COUNT == 0 ||
+          (kp_rgb_has_group_leds(false) && !kp_idle_keys_off()) ||
+          (kp_rgb_has_group_leds(true) && !kp_idle_glow_off()));
+#else
   return kp_rgb_controller.state.user_on &&
          (!IS_ENABLED(CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE) ||
           zmk_activity_get_state() == ZMK_ACTIVITY_ACTIVE);
+#endif
 }
+
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+/* The LEDs that the idle policy has turned off (idle_policy.c) show black: the
+ * LEDs under the keys and the underglow have their own limits. It runs after the
+ * brightness and on the frame only, so the colours that the effects cache stay and
+ * come back with the first key press. */
+static void kp_rgb_apply_idle_masks(struct led_rgb *pixels) {
+  const bool keys_off = kp_idle_keys_off();
+  const bool glow_off = kp_idle_glow_off();
+
+  if (!keys_off && !glow_off) {
+    return;
+  }
+  for (size_t i = 0; i < KP_LED_COUNT; i++) {
+    const bool glow = (kp_map[i] & KP_RGB_NO_KEY_XY_FLAG) != 0;
+
+    if (glow ? glow_off : keys_off) {
+      memset(&pixels[i], 0, sizeof(pixels[i]));
+    }
+  }
+}
+#endif
 
 #define KP_TRY_LOCK()                                                          \
   k_mutex_lock(&kp_rgb_lock, K_MSEC(CONFIG_KEYPAW_RGB_MATRIX_TICK_MS))
@@ -505,7 +551,11 @@ static bool kp_rgb_scene_pass_locked(int64_t now_ms, bool allowed, bool paint) {
         .clock_ms = kp_rgb_clock_ms(),
         .board_length = kp_rgb_board_length,
         .board_height = kp_rgb_board_height,
-        .is_idle = zmk_activity_get_state() != ZMK_ACTIVITY_ACTIVE,
+        /* With the display settings the LEDs are either lit or off (the idle
+         * policy), never at the dimmer idle brightness that ZMK's idle state
+         * asks for. */
+        .is_idle = !IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS) &&
+                   zmk_activity_get_state() != ZMK_ACTIVITY_ACTIVE,
     };
     kp_rgb_scene_animating = false;
     if (fx != NULL) {
@@ -560,6 +610,9 @@ static bool kp_rgb_scene_pass_locked(int64_t now_ms, bool allowed, bool paint) {
     for (size_t i = 0; i < KP_LED_COUNT; i++) {
       scene[i] = kp_rgb_rgb_scale(scene[i], brightness);
     }
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+    kp_rgb_apply_idle_masks(scene);
+#endif
     kp_rgb_output_pending = KP_RGB_OUTPUT_SCENE;
     kp_rgb_scene_dirty = false;
     return true;
@@ -718,6 +771,19 @@ void kp_rgb_reconcile_power_locked(void) {
   }
   zmk_rgb_matrix_flush();
 }
+
+#if IS_ENABLED(CONFIG_KEYPAW_DISPLAY_SETTINGS)
+/* The idle policy (idle_policy.c) turned the LEDs under the keys or the underglow
+ * off or on. When that leaves the strip with no lit LED, or one again, the power is
+ * reconciled; when it only changes which group is lit, the frame is painted again
+ * with the new masks. */
+void kp_rgb_idle_changed(void) {
+  kp_rgb_matrix_lock();
+  kp_rgb_reconcile_power_locked();
+  zmk_rgb_matrix_flush();
+  kp_rgb_matrix_unlock();
+}
+#endif
 
 static bool kp_rgb_pending_push(const struct kp_rgb_key_event *ev) {
   k_spinlock_key_t key = k_spin_lock(&kp_rgb_pending_lock);

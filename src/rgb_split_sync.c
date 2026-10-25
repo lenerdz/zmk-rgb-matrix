@@ -20,6 +20,11 @@
  * the peripheral does not hold yet (the central remembers what it sent each one),
  * and a change made later queues just that phase again.
  *
+ * The idle policy (idle_policy.c) has its own, small stream, outside that state
+ * machine like the clock: RGB_ACTIVITY_CMD tells the peripheral that a key was
+ * pressed on the central (at most one report every few seconds) and whether the
+ * central has USB power (when that changes, and with every tick of the clock).
+ *
  * Central only; the trigger is a poll, as there is no central-side "peripheral
  * connected" event.
  */
@@ -32,6 +37,7 @@
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/iterable_sections.h>
 #include <zephyr/sys/util.h>
 
@@ -41,6 +47,7 @@
 #include <zmk/split/transport/central.h>
 
 #include "display_settings.h"
+#include "idle_policy.h"
 #include "rgb_maps.h"
 #include "rgb_matrix_internal.h"
 
@@ -296,9 +303,87 @@ static void kp_rgb_sync_send_clock(void) {
   }
 }
 
+#if KP_RGB_SYNC_HAS_DISPLAY
+/* ---- the idle policy (idle_policy.c) ----------------------------------------- */
+
+/* While keys are pressed on the central, the peripheral hears about it at most
+ * this often, plus once more when the typing stops (so it never lags by more than
+ * this behind the central, which is what the shortest "off after" of 10 s
+ * allows). */
+#define KP_RGB_SYNC_ACTIVITY_MIN_MS 3000
+
+static struct k_work_delayable kp_rgb_sync_activity_work;
+/* A key press of the central that the peripheral has not heard about yet. */
+static atomic_t kp_rgb_sync_activity_key;
+static int64_t kp_rgb_sync_activity_last_ms;
+static volatile bool kp_rgb_sync_activity_ready;
+
+/* Tells every connected source whether the central has USB power and, with `key`,
+ * that a key was pressed on the central just now. Like the clock, it stays out of
+ * the snapshot state machine, and a dropped one is made up by the next. */
+static void kp_rgb_sync_send_activity(bool key) {
+  const struct zmk_split_transport_central *t = kp_rgb_sync_pick_transport();
+  if (t == NULL) {
+    return;
+  }
+  uint8_t ids[KP_RGB_SYNC_SOURCES];
+  int count = t->api->get_available_source_ids(ids);
+  if (count < 0) {
+    return;
+  }
+  const uint32_t flags =
+      (kp_idle_usb_local() ? RGB_ACTIVITY_USB : 0) | (key ? RGB_ACTIVITY_KEY : 0);
+  for (int i = 0; i < count; i++) {
+    if (ids[i] < KP_RGB_SYNC_SOURCES) {
+      (void)kp_rgb_sync_send(ids[i], RGB_ACTIVITY_CMD, flags);
+    }
+  }
+}
+
+static void kp_rgb_sync_activity_handler(struct k_work *work) {
+  ARG_UNUSED(work);
+  const bool key = atomic_get(&kp_rgb_sync_activity_key) != 0;
+
+  if (key) {
+    const int64_t now = k_uptime_get();
+    const int64_t since = now - kp_rgb_sync_activity_last_ms;
+
+    if (since < KP_RGB_SYNC_ACTIVITY_MIN_MS) {
+      /* Too soon after the last one: the report waits its turn. */
+      k_work_schedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_activity_work,
+                                K_MSEC(KP_RGB_SYNC_ACTIVITY_MIN_MS - since));
+      return;
+    }
+    atomic_set(&kp_rgb_sync_activity_key, 0);
+    kp_rgb_sync_activity_last_ms = now;
+  }
+  kp_rgb_sync_send_activity(key);
+}
+
+void kp_rgb_sync_activity_kick(bool key) {
+  if (!kp_rgb_sync_activity_ready) {
+    return;
+  }
+  if (key) {
+    atomic_set(&kp_rgb_sync_activity_key, 1);
+    /* A report that already waits for its turn keeps its time. */
+    k_work_schedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_activity_work,
+                              K_NO_WAIT);
+  } else {
+    k_work_reschedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_activity_work,
+                                K_NO_WAIT);
+  }
+}
+#endif /* KP_RGB_SYNC_HAS_DISPLAY */
+
 static void kp_rgb_sync_clock_handler(struct k_work *work) {
   ARG_UNUSED(work);
   kp_rgb_sync_send_clock();
+#if KP_RGB_SYNC_HAS_DISPLAY
+  /* The USB state of the central, so that a peripheral that connected after the
+   * last change, or lost one, knows it. */
+  kp_rgb_sync_send_activity(false);
+#endif
   k_work_reschedule_for_queue(kp_rgb_work_q(), &kp_rgb_sync_clock,
                               K_MSEC(CONFIG_KEYPAW_RGB_SPLIT_SYNC_CLOCK_MS));
 }
@@ -594,6 +679,8 @@ static int kp_rgb_split_sync_init(void) {
 #if KP_RGB_SYNC_HAS_DISPLAY
   k_work_init(&kp_rgb_sync_display_work, kp_rgb_sync_display_work_handler);
   kp_rgb_sync_display_ready = true;
+  k_work_init_delayable(&kp_rgb_sync_activity_work, kp_rgb_sync_activity_handler);
+  kp_rgb_sync_activity_ready = true;
 #endif
   /* The module work queue is started at POST_KERNEL, well before this. The
    * first poll is delayed rather than immediate to stay clear of the

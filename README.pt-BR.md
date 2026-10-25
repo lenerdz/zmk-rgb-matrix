@@ -331,7 +331,11 @@ bindings = <
 O estado dos efeitos é persistido quando `CONFIG_SETTINGS=y`; caso contrário, o
 estado inicial configurado é usado na inicialização. A matriz desliga quando
 fica ociosa (idle) por padrão; `CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE=n` a
-mantém acesa e aplica `idle-brightness` enquanto estiver ociosa.
+mantém acesa e aplica `idle-brightness` enquanto estiver ociosa. Com
+`CONFIG_KEYPAW_DISPLAY_SETTINGS` ligada, o estado ocioso do ZMK não é usado: os LEDs
+apagam pelos limites das configurações da tela (veja
+[Quando a tela e as luzes apagam](#quando-a-tela-e-as-luzes-apagam)), e essas duas
+opções não fazem nada.
 
 > Além dos comandos do ZMK, oferecemos um novo comando `RGB_RESET`. Como
 > persistimos os estados por efeito, quando você altera as definições de efeitos
@@ -553,54 +557,53 @@ descarte e a cópia para a metade periférica.
 ## Configurações da tela (OLED)
 
 `CONFIG_KEYPAW_DISPLAY_SETTINGS` (desligada por padrão) mantém uma lista de
-configurações inteiras numeradas para as telas: o contraste de cada metade,
-quando a tela apaga, o toast leve do fork
-[zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled) e, com
-`CONFIG_KEYPAW_OLED_LAYOUT`, quais widgets as telas desenham e onde (veja
-[Layout das telas OLED](#layout-das-telas-oled)). Cada metade aplica as
-configurações na hora e as guarda na sua própria flash, a central as copia para a
-periférica, e o [ZMK Studio](https://zmk.dev/docs/features/studio) as edita (veja
-[Requisições do ZMK Studio para a tela](#requisições-do-zmk-studio-para-a-tela)).
+configurações inteiras numeradas para as telas e as luzes: o contraste de cada
+metade, quando a tela, os LEDs sob as teclas e o underglow apagam, o toast leve do
+fork [zmk-nice-oled](https://github.com/lenerdz/zmk-nice-oled), o anti burn-in das
+telas (o deslocamento de pixels e o escurecimento) e, com `CONFIG_KEYPAW_OLED_LAYOUT`,
+quais widgets as telas desenham e onde (veja [Layout das telas OLED](#layout-das-telas-oled)).
+Cada metade aplica as configurações na hora e as guarda na sua própria flash, a central
+as copia para a periférica, e o [ZMK Studio](https://zmk.dev/docs/features/studio) as
+edita (veja [Requisições do ZMK Studio para a tela](#requisições-do-zmk-studio-para-a-tela)).
 Um widget lê uma delas com `kp_display_setting_get()`
 (`include/zmk/display_settings.h`).
 
-Ela não tem relação com as cores, mas o comando que chega à periférica viaja em
-`&kprgb` e a cópia é feita pela mesma sincronização split, então ela precisa de
-`CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX` e precisa estar ligada no build das duas
-metades. Precisa também de `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (a compilação
-falha caso contrário), porque o módulo apaga a tela por conta própria.
+Fora o momento em que as luzes apagam, ela não tem relação com as cores, mas os comandos
+que chegam à periférica viajam em `&kprgb` e a cópia é feita pela mesma sincronização
+split, então ela precisa de `CONFIG_KEYPAW_BEHAVIOR_RGB_MATRIX` e precisa estar ligada no
+build das duas metades. Precisa também de `CONFIG_ZMK_DISPLAY_BLANK_ON_IDLE=n` (a
+compilação falha caso contrário), porque o módulo apaga a tela por conta própria.
 
 | Id | Configuração | Faixa | Padrão | O que faz |
 |---|---|---|---|---|
 | 1 | Contraste da tela esquerda | 0 a 255 | 128 (`CONFIG_SSD1306_DEFAULT_CONTRAST`) | `display_set_contrast()` da tela da metade central |
 | 2 | Contraste da tela direita | 0 a 255 | 128 | o mesmo, na metade periférica |
-| 3 | Apagar a tela | 0 nunca, 1 só na bateria, 2 sempre | 0 | se a tela apaga quando o teclado fica ocioso; "só na bateria" a mantém ligada enquanto o USB está conectado àquela metade |
-| 4 | Segundos sem atividade antes de apagar a tela | `CONFIG_ZMK_IDLE_TIMEOUT` / 1000 (30) a 3600 | 60 | contados a partir da última atividade; usada quando a configuração 3 não é 0 |
+| 3 | Apagar a tela | 0 nunca, 1 só na bateria, 2 sempre | 0 (`CONFIG_KEYPAW_DISPLAY_OFF_MODE_DEFAULT`) | se a tela apaga quando ninguém digita; "só na bateria" a mantém ligada enquanto o teclado tem USB |
+| 4 | Segundos sem atividade antes de apagar a tela | 10 a 3600 | 60 (`CONFIG_KEYPAW_DISPLAY_OFF_AFTER_S_DEFAULT`) | contados a partir da última atividade; usada quando a configuração 3 não é 0 |
 | 5 | Toast | 0 ou 1 | 1 | o toast leve do zmk-nice-oled |
 | 6 | Duração do toast (ms) | 500 a 5000 | `CONFIG_KEYPAW_DISPLAY_TOAST_MS_DEFAULT` (1500) | por quanto tempo o toast fica na tela |
+| 7 | Apagar os LEDs sob as teclas | 0 nunca, 1 só na bateria, 2 sempre | 1 (`CONFIG_KEYPAW_DISPLAY_KEYS_OFF_MODE_DEFAULT`) | se os LEDs sob as teclas apagam quando ninguém digita |
+| 8 | Segundos sem atividade antes de apagar os LEDs sob as teclas | 10 a 3600 | 300 (`CONFIG_KEYPAW_DISPLAY_KEYS_OFF_AFTER_S_DEFAULT`) | usada quando a configuração 7 não é 0 |
+| 9 | Apagar o underglow | 0 nunca, 1 só na bateria, 2 sempre | 1 (`CONFIG_KEYPAW_DISPLAY_GLOW_OFF_MODE_DEFAULT`) | o mesmo, para os LEDs que não ficam sob uma tecla (os que têm `KP_RGB_NO_KEY` no mapeamento do nó `rgb-matrix`) |
+| 10 | Segundos sem atividade antes de apagar o underglow | 10 a 3600 | 300 (`CONFIG_KEYPAW_DISPLAY_GLOW_OFF_AFTER_S_DEFAULT`) | usada quando a configuração 9 não é 0 |
+| 11 | Deslocamento de pixels | 0 ou 1 | 1 (`CONFIG_KEYPAW_DISPLAY_SHIFT_DEFAULT`) | anti burn-in: de tempos em tempos tudo o que uma tela mostra se move de um pixel por um caminho curto (quem desenha é o zmk-nice-oled; veja "Anti burn-in: deslocamento de pixels" no README dele) |
+| 12 | Segundos entre dois passos do deslocamento de pixels | 10 a 3600 | 60 (`CONFIG_KEYPAW_DISPLAY_SHIFT_EVERY_S_DEFAULT`) | usada quando a configuração 11 é 1 |
+| 13 | Distância do deslocamento de pixels | 1 a 4 | 2 (`CONFIG_KEYPAW_DISPLAY_SHIFT_PX_DEFAULT`) | pixels para cada lado do lugar onde a tela é desenhada |
+| 14 | Segundos sem atividade antes de escurecer a tela | 0 a 3600 | 120 (`CONFIG_KEYPAW_DISPLAY_DIM_AFTER_S_DEFAULT`) | anti burn-in: 0 nunca escurece, e um valor de 1 a 9 conta como 10 |
+| 15 | Contraste de uma tela escurecida | 5 a 90 | 25 (`CONFIG_KEYPAW_DISPLAY_DIM_LEVEL_DEFAULT`) | porcentagem do contraste normal (nunca menos que 1; uma tela cujo contraste é 0 fica em 0) |
 
 As configurações com id 16 ou maior são o layout das telas, descrito em
-[Layout das telas OLED](#layout-das-telas-oled).
-
-**Apagar a tela.** A opção própria do ZMK não distingue USB de bateria, então o
-módulo apaga a tela por conta própria, com `display_blanking_on()`, e a acende de
-novo com `display_blanking_off()`, na fila de trabalho do display (a mesma de onde
-o LVGL faz o flush). O ZMK fica ocioso depois de `CONFIG_ZMK_IDLE_TIMEOUT`; o
-módulo espera, depois disso, o resto do tempo da configuração 4 e então apaga a
-tela, se o modo permitir. Qualquer atividade a acende de novo. Uma mudança feita
-no ZMK Studio acende a tela e a mantém acesa por pelo menos 10 segundos, para que
-a mudança possa ser vista. O modo "nunca" não faz nada, o que equivale à opção do
-ZMK desligada. O ZMK conta a atividade de cada metade por conta própria: a metade
-esquerda (central) conta também as teclas da direita, mas a metade direita conta só
-as suas, então a tela dela apaga enquanto você digita só na esquerda.
+[Layout das telas OLED](#layout-das-telas-oled). Quando a tela e as luzes apagam é
+explicado em [Quando a tela e as luzes apagam](#quando-a-tela-e-as-luzes-apagam).
 
 **Flash.** Cada metade guarda um registro de configurações, `keypaw/display/<id>`
 (um int32), para cada configuração que difere do padrão; uma configuração no
 padrão não tem registro. Uma mudança é gravada 3 segundos depois da última
 (`CONFIG_KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS`, para que arrastar um controle deslizante
 grave uma vez só) e os registros valem mais que os padrões no boot; um
-registro desconhecido ou fora da faixa é ignorado. `&kprgb RGB_RESET` não mexe
-neles. O "Restore Stock Settings" do ZMK Studio os apaga.
+registro desconhecido ou fora da faixa é ignorado (o de um tipo de imagem que foi
+aposentado é apagado pelo salvamento que vem depois do boot). `&kprgb RGB_RESET` não
+mexe neles. O "Restore Stock Settings" do ZMK Studio os apaga.
 
 **Teclados split.** A cópia para a periférica é a última fase da sincronização
 split, depois dos mapas de cores: um `RGB_DISPLAY_SET_CMD` por configuração
@@ -613,10 +616,82 @@ conecta (ou reinicia) não se sabe nada sobre ela, então toda configuração qu
 aplica é enviada. A central nunca envia as configurações da sua própria tela (o
 contraste da esquerda e, com o layout das telas OLED, os widgets da tela esquerda).
 A periférica aplica o valor e o guarda na sua própria flash, então a tela dela já
-está certa no boot, antes de a central conectar. As duas metades guardam as seis
-configurações, e cada metade aplica o seu próprio contraste. Com o layout das
-telas OLED, a central guarda também as configurações das duas telas e a periférica
+está certa no boot, antes de a central conectar. As duas metades guardam as quinze
+configurações, e cada metade aplica o que é dela: o seu contraste, os limites da sua
+tela e dos seus LEDs, o seu deslocamento de pixels e o seu escurecimento. Com o layout
+das telas OLED, a central guarda também as configurações das duas telas e a periférica
 as da tela direita.
+
+A atividade viaja no sentido contrário, da central para a periférica, em
+`RGB_ACTIVITY_CMD` (0x107, `include/dt-bindings/keypaw/rgb_matrix.h`): `param2` tem
+`RGB_ACTIVITY_USB` (1: a central tem alimentação USB) e `RGB_ACTIVITY_KEY` (2: uma
+tecla foi pressionada na central). Enquanto há teclas sendo pressionadas na central ela
+envia no máximo um aviso a cada 3 segundos (`KP_RGB_SYNC_ACTIVITY_MIN_MS`), mais um
+quando a digitação para; envia um quando o estado de USB dela muda e um a cada tique do
+relógio da sincronização split (`CONFIG_KEYPAW_RGB_SPLIT_SYNC_CLOCK_MS`, 30 segundos).
+Como o relógio, ele fica fora da máquina de estados do snapshot, e um que se perde é
+compensado pelo seguinte.
+
+### Quando a tela e as luzes apagam
+
+O estado ocioso (idle) do ZMK não é usado aqui. Ele é um tempo só para tudo
+(`CONFIG_ZMK_IDLE_TIMEOUT`, 30 segundos), cada metade conta só as teclas que vê (a
+metade direita não percebe que você está digitando na esquerda) e ele não sabe nada
+sobre o USB, e é por isso que as luzes de um teclado que só estava sendo olhado
+apagavam sozinhas. Com as configurações da tela o módulo guarda por conta própria a hora
+da última atividade (`src/idle_policy.c`, com as regras em `src/idle_policy.h`), e quatro
+coisas a seguem, cada uma com o seu limite:
+
+| O quê | Configurações | Padrão |
+|---|---|---|
+| a tela apaga | 3 e 4 | nunca (60 segundos quando é ligada) |
+| os LEDs sob as teclas apagam | 7 e 8 | só na bateria, depois de 300 segundos |
+| o underglow apaga | 9 e 10 | só na bateria, depois de 300 segundos |
+| a tela escurece | 14 e 15 | depois de 120 segundos, para 25 por cento do contraste dela |
+
+**Atividade** é uma tecla pressionada em qualquer das metades, uma mudança feita no ZMK
+Studio e o cabo USB sendo ligado ou desligado. A central conta as teclas das duas metades
+(ela recebe as da periférica) e avisa a periférica das suas próprias teclas e do seu estado
+de USB (`RGB_ACTIVITY_CMD`, veja "Teclados split" acima), então digitar em uma metade
+mantém a outra acordada e as metades apagam juntas. Uma mudança no estado de USB da
+central de que a periférica fica sabendo também conta como atividade (o primeiro aviso
+depois do início, não). O menor tempo é 10 segundos, que a periférica consegue acompanhar
+porque um aviso da central nunca atrasa mais de 3 segundos.
+
+**Os modos.** "Nunca" não faz nada, o que, para a tela, equivale à opção do ZMK
+desligada. "Sempre" apaga quando o tempo acaba. "Só na bateria" apaga só enquanto o
+teclado não tem USB: o teclado tem USB quando esta metade tem alimentação USB ou, na
+periférica, quando a central diz que tem (a periférica deixa de acreditar na central
+depois de 120 segundos sem um aviso, e passa a contar só o USB dela). O escurecimento não
+depende do USB: é a proteção de uma tela que nunca apaga.
+
+**A tela** apaga com `display_blanking_on()` e volta com `display_blanking_off()`, na fila
+de trabalho do display (a mesma de onde o LVGL faz o flush). Escurecer e apagar são
+coisas separadas: a tela escurece depois dos segundos da configuração 14 (o contraste dela,
+configuração 1 ou 2, cai para a porcentagem da configuração 15, e nunca para 0 se não era
+0) e apaga depois dos segundos da configuração 4, e qualquer atividade devolve o contraste
+e a luz. Uma mudança feita no ZMK Studio conta como atividade, então acende a tela e a
+mantém acesa por pelo menos 10 segundos, para que a mudança possa ser vista.
+
+**Os LEDs** são dois grupos: os LEDs sob as teclas e o underglow (os LEDs com
+`KP_RGB_NO_KEY` no mapeamento do nó `rgb-matrix`). Um grupo apagado é desenhado em preto
+depois dos efeitos e do brilho, então o que os efeitos lembram está lá quando a primeira
+tecla traz o grupo de volta; o liga e desliga do `&kprgb RGB_TOG` não é tocado. Quando os
+dois grupos estão apagados (ou o único grupo que a fita tem), a matriz para de animar e a
+fita fica preta. `CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE` e `idle-brightness` não fazem
+nada enquanto as configurações da tela estão ligadas.
+
+**Situação.** As regras e a cola têm testes no computador com um relógio falso, eventos
+falsos e um enlace split falso (`tests/unit/test_idle_policy.py`, 16 cenários: os modos, os
+limites, a ordem dos três, o USB da periférica e a expiração dele, o aviso de uma tecla e a
+frequência dele, uma configuração mudada enquanto a política avalia, um teclado sem
+configurações salvas), e o que ela faz com os LEDs também (`tests/unit/test_idle_leds.py`:
+quais LEDs ficam pretos em cada estado dos dois grupos, o interruptor do usuário, o estado
+ocioso do ZMK sendo ignorado, uma fita sem nenhum LED); o contraste de uma tela escurecida e
+o percurso do deslocamento de pixels são conferidos ali também. Compila no CI do
+[lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi experimentado em
+um teclado real: as luzes e a tela apagando sozinhas depois dos seus tempos, só na
+bateria, as metades apagando juntas, o escurecimento e o deslocamento de pixels.
 
 ### Layout das telas OLED
 
@@ -667,7 +742,7 @@ periférica não tem entradas da tela esquerda.
 | 96 a 98 | esquerda | número de WPM | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_NUMBER` |
 | 104 a 106 | esquerda | gráfico de WPM (x e y são os da grade embaixo dele) | mostrar, x, y | `CONFIG_NICE_OLED_WIDGET_WPM_GRAPH`, e nem o bongo cat, nem o cachorro luna, nem os indicadores fixos de modificadores |
 
-**Animação.** O tipo (id 19) é um destes, oferecidos nesta ordem pelo app:
+**Animação.** O tipo (id 19) é um destes, oferecidos nesta ordem pelo app (os aposentados, marcados na tabela, não são oferecidos):
 
 | Valor | Tipo | Quadros | Tempo próprio de um ciclo |
 |---|---|---|---|
@@ -676,8 +751,8 @@ periférica não tem entradas da tela esquerda.
 | 2 | head | 16 | 4800 ms |
 | 3 | spaceman | 20 | 4800 ms |
 | 4 | pokemon | 48 | 10000 ms |
-| 5 | vim (imagem parada) | 1 | nenhum |
-| 6 | vip_marcos (imagem parada) | 1 | nenhum |
+| 5 | vim (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 6 | vip_marcos (aposentado, era uma imagem parada) | nenhum | nenhum |
 | 7 | equalizer | 16 | 1200 ms |
 | 8 | radar | 24 | 2400 ms |
 | 9 | heartbeat | 16 | 1600 ms |
@@ -692,11 +767,11 @@ periférica não tem entradas da tela esquerda.
 | 18 | mountains (imagem parada) | 1 | nenhum |
 | 19 | skyline (imagem parada) | 1 | nenhum |
 | 20 | circuit (imagem parada) | 1 | nenhum |
-| 21 | alien (imagem parada) | 1 | nenhum |
-| 22 | heart (imagem parada) | 1 | nenhum |
+| 21 | alien (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 22 | heart (aposentado, era uma imagem parada) | nenhum | nenhum |
 | 23 | keyboard (imagem parada) | 1 | nenhum |
-| 24 | pulsar (imagem parada) | 1 | nenhum |
-| 25 | rocket (imagem parada) | 1 | nenhum |
+| 24 | pulsar (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 25 | rocket (aposentado, era uma imagem parada) | nenhum | nenhum |
 | 26 | waterfall | 16 | 1600 ms |
 | 27 | lava | 16 | 3200 ms |
 | 28 | lightning | 16 | 1600 ms |
@@ -717,36 +792,47 @@ periférica não tem entradas da tela esquerda.
 | 43 | ufo | 16 | 1600 ms |
 | 44 | eye | 24 | 2400 ms |
 | 45 | keywave | 24 | 2400 ms |
-| 46 | coffee (imagem parada) | 1 | nenhum |
-| 47 | cactus (imagem parada) | 1 | nenhum |
-| 48 | lighthouse (imagem parada) | 1 | nenhum |
+| 46 | coffee (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 47 | cactus (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 48 | lighthouse (aposentado, era uma imagem parada) | nenhum | nenhum |
 | 49 | moon_cat (imagem parada) | 1 | nenhum |
-| 50 | robot (imagem parada) | 1 | nenhum |
+| 50 | robot (aposentado, era uma imagem parada) | nenhum | nenhum |
 | 51 | planet (imagem parada) | 1 | nenhum |
-| 52 | castle (imagem parada) | 1 | nenhum |
-| 53 | tree (imagem parada) | 1 | nenhum |
-| 54 | skull (imagem parada) | 1 | nenhum |
-| 55 | sword (imagem parada) | 1 | nenhum |
-| 56 | key (imagem parada) | 1 | nenhum |
-| 57 | antenna (imagem parada) | 1 | nenhum |
-| 58 | potion (imagem parada) | 1 | nenhum |
-| 59 | sailboat (imagem parada) | 1 | nenhum |
-| 60 | compass (imagem parada) | 1 | nenhum |
-| 61 | crown (imagem parada) | 1 | nenhum |
-| 62 | cassette (imagem parada) | 1 | nenhum |
-| 63 | floppy (imagem parada) | 1 | nenhum |
-| 64 | phases (imagem parada) | 1 | nenhum |
-| 65 | mushroom (imagem parada) | 1 | nenhum |
+| 52 | castle (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 53 | tree (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 54 | skull (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 55 | sword (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 56 | key (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 57 | antenna (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 58 | potion (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 59 | sailboat (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 60 | compass (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 61 | crown (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 62 | cassette (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 63 | floppy (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 64 | phases (aposentado, era uma imagem parada) | nenhum | nenhum |
+| 65 | mushroom (aposentado, era uma imagem parada) | nenhum | nenhum |
 
-Os tipos 7 a 65 são as imagens que o `scripts/pictures/make_pictures.py` do zmk-nice-oled desenha em dois lotes (os tipos 7 a 25, e os tipos 26 a 65: 20 animações, depois 20 imagens paradas), todas com 32 pixels de largura (a largura do painel); o README dele ("Novas imagens da tela direita") as descreve. O número de um tipo é o que o teclado guarda na
-flash dele, então uma imagem só é acrescentada no fim desta lista, com o mesmo nome e
-número em `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) e na lista de
+Os tipos 7 a 65 são as imagens que o `scripts/pictures/make_pictures.py` do zmk-nice-oled desenha em dois lotes (os tipos 7 a 25, e os tipos 26 a 65: 20 animações, depois 20 imagens paradas), todas com 32 pixels de largura (a largura do painel); o README dele ("Novas imagens da tela direita") as descreve.
+
+24 dos 66 tipos estão **aposentados**: as imagens paradas `vim` e `vip_marcos` do shield
+original e 22 das novas. Só `mountains`, `skyline`, `circuit`, `keyboard`, `moon_cat` e
+`planet` ficaram, então o app oferece 42 imagens (36 animações e 6 imagens paradas). Um
+tipo aposentado mantém o número e o nome dele em `enum kp_oled_anim_kind`, mas não tem
+imagem no firmware: `kp_oled_anim_kind_retired()` (`include/zmk/display_settings.h`)
+informa quais são, o teclado não aceita um deles como valor da configuração 19
+(`INVALID_VALUE` na requisição), e o registro de um que foi guardado antes é ignorado e
+apagado quando as configurações carregam, então a tela volta ao tipo padrão.
+
+O número de um tipo é o que o teclado guarda na flash dele, então uma imagem só é
+acrescentada no fim desta lista (e uma que sai é aposentada, nunca removida), com o mesmo
+nome e número em `enum kp_oled_anim_kind` (`include/zmk/display_settings.h`) e na lista de
 imagens do zmk-nice-oled, e `KP_OLED_ANIM_KIND_COUNT` aumenta.
 
 O tipo padrão é o que o build escolheu: `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_HEAD`,
 `_CAT`, `_SPACEMAN` ou `_POKEMON` (a primeira que estiver ligada, nessa ordem, e o
-crystal se nenhuma estiver) ou, sem animação,
-`CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` ou `_VIP_MARCOS`. O tempo do ciclo
+crystal se nenhuma estiver; `CONFIG_NICE_OLED_WIDGET_STATIC_IMAGE_PERIPHERAL_VIM` e
+`_VIP_MARCOS` pedem um tipo aposentado, então o crystal é o padrão nesse caso). O tempo do ciclo
 (id 20) é 0, ou de 100 a 60000 ms: 0 é o tempo que pertence à animação (a que o build
 escolheu mantém `CONFIG_NICE_OLED_WIDGET_ANIMATION_PERIPHERAL_MS`), e um valor de 1 a
 99 conta como 100. Uma imagem parada não tem ciclo. Com a opção ligada, o zmk-nice-oled
@@ -816,14 +902,14 @@ direita e nada à RAM dela.
 repositório), as faixas (as do giro, da mistura e do pedaço também), o evento de
 mudança, os registros na flash dos ids além dos 32 primeiros e a sincronização só do que
 a periférica não tem possuem testes no computador com um relógio falso
-(`tests/unit/test_display_settings.py`, 45 execuções); o driver do display, as filas de
+(`tests/unit/test_display_settings.py`, 50 execuções); o driver do display, as filas de
 trabalho e o backend de settings são substitutos ali. O firmware das duas metades
 compila naquele CI. A primeira versão do layout (os widgets se movendo, a animação
 mudando com o teclado funcionando, a cópia da tela direita para a metade periférica) foi
 usada em um Corne de verdade, e o dono dele relatou que funcionou, sem detalhes sobre
 cada operação. O que veio depois ainda não foi experimentado em um teclado real: o giro,
 o pedaço e a mistura da imagem (configurações 112 a 115), a conversão das coordenadas de
-uma imagem girada, e os 59 tipos novos (7 a 65).
+uma imagem girada, e as 37 imagens que sobraram dos tipos novos (7 a 65).
 
 ### Requisições do ZMK Studio para a tela
 
@@ -843,9 +929,8 @@ teclado desbloqueado.
 
 Não há etapa de salvar nem de descartar, e não há notificação: uma mudança é
 aplicada na hora e gravada na flash alguns segundos depois. O cliente precisa usar os `min`, `max` e
-`default_value` que `get_display_info` informa, porque eles dependem do firmware (o
-limite inferior da configuração 4 é o tempo de ociosidade do build, e a própria lista
-muda com as opções do build: seis configurações, ou mais com o layout das telas OLED).
+`default_value` que `get_display_info` informa, porque eles dependem do firmware (a própria lista
+muda com as opções do build: quinze configurações, ou mais com o layout das telas OLED).
 A lista não tem tamanho fixo: `settings` é codificada por um callback, uma entrada por
 vez, então um firmware lista quantas configurações tiver (o módulo guarda no máximo 64,
 `KP_DISPLAY_SETTING_CAP`). Um firmware
@@ -854,12 +939,14 @@ descobre que o recurso não existe. O "Restore Stock Settings" do ZMK Studio tam
 devolve as configurações ao padrão.
 
 **Situação.** A lógica das configurações (faixas, registros na flash, o contraste de
-cada metade, quando a tela apaga, o comando para a periférica) tem testes no
-computador com um relógio falso (`tests/unit/test_display_settings.py`); o driver do
-display, as filas de trabalho e o backend de settings são substitutos ali. Compila no
+cada metade, quando a tela apaga, os limites dos LEDs, o escurecimento e o deslocamento de
+pixels, o comando para a periférica) tem testes no computador com um relógio falso
+(`tests/unit/test_display_settings.py`, `tests/unit/test_idle_policy.py` e
+`tests/unit/test_idle_leds.py`); o driver do display, as filas de trabalho e o backend de
+settings são substitutos ali. Compila no
 CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk). Ainda não foi
-experimentado em um teclado real: o contraste, a tela apagando em cada modo, a cópia
-para a metade periférica e as três requisições (a situação do layout das telas OLED
+experimentado em um teclado real: o contraste, a tela e as luzes apagando em cada modo,
+a cópia para a metade periférica e as três requisições (a situação do layout das telas OLED
 está em [Layout das telas OLED](#layout-das-telas-oled)).
 
 ### Requisições do ZMK Studio para o estado ao vivo e as informações do firmware

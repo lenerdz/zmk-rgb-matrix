@@ -107,6 +107,11 @@ config KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE
       Without this the strip might latch at its last color through deep sleep
       and keeps drawing current.
 
+      This follows the idle state of ZMK (CONFIG_ZMK_IDLE_TIMEOUT, 30 s by
+      default). With CONFIG_KEYPAW_DISPLAY_SETTINGS the module has its own idle
+      time and this option is ignored: the settings "key lights off" and "underglow
+      off" say when each group of LEDs goes off (never, only on battery, always).
+
 # Caps Lock will pull in a HID-indicator event dependency. Disable it if you
 # don't need that.
 config KEYPAW_RGB_CONDITION_CAPS_LOCK
@@ -253,20 +258,28 @@ config KEYPAW_RGB_MAPS_STUDIO
       by whatever else calls the C API of rgb_maps.h.
 
 config KEYPAW_DISPLAY_SETTINGS
-    bool "Display (OLED) settings: contrast, screen off, toast"
+    bool "Display (OLED) settings: contrast, when screen and lights go off, toast, anti burn-in"
     default n
     depends on KEYPAW_BEHAVIOR_RGB_MATRIX
     depends on ZMK_DISPLAY
     depends on !ZMK_DISPLAY_BLANK_ON_IDLE
     help
-      A short list of numbered integer settings for the screens: the contrast of
-      each half, when the screen goes off (never, only on battery, always) and
-      after how many seconds, and the light toast of the zmk-nice-oled shield
-      (on or off, how long). Each half applies them at once and keeps them in its
-      own flash; the central pushes them to its peripheral with the same split
-      sync that carries the colour maps, and ZMK Studio edits them through the
-      display requests of lenerdz/zmk-studio-messages (see
-      KEYPAW_DISPLAY_SETTINGS_STUDIO).
+      A short list of numbered integer settings for the screens and the lights: the
+      contrast of each half, when the screen, the LEDs under the keys and the
+      underglow go off (never, only on battery, always) and after how many seconds,
+      the light toast of the zmk-nice-oled shield (on or off, how long) and the
+      anti burn-in of the screens (pixel shift and dimming). Each half applies them
+      at once and keeps them in its own flash; the central pushes them to its
+      peripheral with the same split sync that carries the colour maps, and ZMK
+      Studio edits them through the display requests of
+      lenerdz/zmk-studio-messages (see KEYPAW_DISPLAY_SETTINGS_STUDIO).
+
+      The module counts the idle time itself (src/idle_policy.c): the time since the
+      last key press on either half, the use of ZMK Studio and plugging USB in. The
+      central tells the peripheral about it, so the halves go off together. The
+      idle state of ZMK (CONFIG_ZMK_IDLE_TIMEOUT) no longer matters for the screen
+      or the lights, and CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE is ignored: the
+      LEDs go off when the settings say so.
 
       The module blanks the screen by itself, so ZMK's own blanking
       (ZMK_DISPLAY_BLANK_ON_IDLE) has to be off: it cannot tell USB from battery,
@@ -285,6 +298,103 @@ config KEYPAW_DISPLAY_TOAST_MS_DEFAULT
     help
       The default of the display setting "toast duration", which ZMK Studio can
       change. 500 to 5000, the range of that setting.
+
+config KEYPAW_DISPLAY_OFF_MODE_DEFAULT
+    int "Default for when the screen goes off (0 never, 1 only on battery, 2 always)"
+    default 0
+    range 0 2
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "screen off", which ZMK Studio can change.
+      0 never, 1 only while USB is not connected, 2 always. The default of 0 keeps
+      the screen on, as it was before the setting existed; with it the anti burn-in
+      (pixel shift and dimming) is what looks after the panel.
+
+config KEYPAW_DISPLAY_OFF_AFTER_S_DEFAULT
+    int "Default seconds without activity before the screen goes off"
+    default 60
+    range 10 3600
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "screen off after", 10 to 3600. It counts
+      only when the mode is not "never".
+
+config KEYPAW_DISPLAY_KEYS_OFF_MODE_DEFAULT
+    int "Default for when the LEDs under the keys go off (0 never, 1 only on battery, 2 always)"
+    default 1
+    range 0 2
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "key lights off", which ZMK Studio can
+      change. 0 never, 1 only while the keyboard has no USB (the lights stay on at
+      the computer and go off on battery), 2 always. The keyboard has USB when this
+      half has it or, on the peripheral, when the central has it.
+
+config KEYPAW_DISPLAY_KEYS_OFF_AFTER_S_DEFAULT
+    int "Default seconds without activity before the LEDs under the keys go off"
+    default 300
+    range 10 3600
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "key lights off after", 10 to 3600. It
+      counts only when the mode is not "never".
+
+config KEYPAW_DISPLAY_GLOW_OFF_MODE_DEFAULT
+    int "Default for when the underglow goes off (0 never, 1 only on battery, 2 always)"
+    default 1
+    range 0 2
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "underglow off": the same as the one of
+      the LEDs under the keys, for the LEDs that are not under a key (the ones
+      with KP_RGB_NO_KEY in the mapping of the rgb-matrix node).
+
+config KEYPAW_DISPLAY_GLOW_OFF_AFTER_S_DEFAULT
+    int "Default seconds without activity before the underglow goes off"
+    default 300
+    range 10 3600
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "underglow off after", 10 to 3600.
+
+config KEYPAW_DISPLAY_SHIFT_DEFAULT
+    int "Default of the pixel shift of the screens (0 off, 1 on)"
+    default 1
+    range 0 1
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "pixel shift", an anti burn-in measure:
+      every few seconds the picture of each screen moves one pixel, along a short
+      walk, so no pixel stays lit under the same shape for hours. The screens do it
+      themselves (zmk-nice-oled).
+
+config KEYPAW_DISPLAY_SHIFT_EVERY_S_DEFAULT
+    int "Default seconds between two steps of the pixel shift"
+    default 60
+    range 10 3600
+    depends on KEYPAW_DISPLAY_SETTINGS
+
+config KEYPAW_DISPLAY_SHIFT_PX_DEFAULT
+    int "Default distance of the pixel shift, in pixels to each side"
+    default 2
+    range 1 4
+    depends on KEYPAW_DISPLAY_SETTINGS
+
+config KEYPAW_DISPLAY_DIM_AFTER_S_DEFAULT
+    int "Default seconds without activity before the screen dims (0 never)"
+    default 120
+    range 0 3600
+    depends on KEYPAW_DISPLAY_SETTINGS
+    help
+      The default of the display setting "dim after", an anti burn-in measure: the
+      contrast of the screen drops to the dim level, and comes back with the first
+      key press. 0 never dims; a value from 1 to 9 counts as 10.
+
+config KEYPAW_DISPLAY_DIM_LEVEL_DEFAULT
+    int "Default contrast of a dimmed screen (percent of the normal one)"
+    default 25
+    range 5 90
+    depends on KEYPAW_DISPLAY_SETTINGS
 
 config KEYPAW_DISPLAY_SAVE_DEBOUNCE_MS
     int "Delay before a changed display setting is written to flash (ms)"

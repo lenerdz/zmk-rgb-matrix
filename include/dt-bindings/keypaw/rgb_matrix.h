@@ -60,6 +60,24 @@
  * int32 carried as a uint32. */
 #define RGB_DISPLAY_SET_CMD 0x106
 
+/* Module-local, internal command for the idle policy (CONFIG_KEYPAW_DISPLAY_SETTINGS,
+ * src/idle_policy.c). The central tells its peripheral that the keyboard is being
+ * used and whether the central has USB power, so that both halves turn the lights
+ * and the screen off together, and so that "only on battery" means the keyboard,
+ * not the half. Like the other internal commands it is not user-bindable and its
+ * handler returns before the kp_rgb_save_state() the other commands end with.
+ *
+ * param1 is the command alone; param2 is a bit mask:
+ *   RGB_ACTIVITY_USB  the central has USB power;
+ *   RGB_ACTIVITY_KEY  a key was pressed on the central just now, which the
+ *                     peripheral counts as activity of its own. Without it the
+ *                     command only reports the USB state (the periodic one, and
+ *                     the one sent when the USB state changes), and does not wake
+ *                     anything. */
+#define RGB_ACTIVITY_CMD 0x107
+#define RGB_ACTIVITY_USB 0x1
+#define RGB_ACTIVITY_KEY 0x2
+
 /* A "mapping" entry is one of two things:
  *
  *   - a plain integer N  -> the LED sits under key position N in the

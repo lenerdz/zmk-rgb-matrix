@@ -203,6 +203,7 @@ static atomic_t transfer_entered,transfer_release,block_transfer;
 static atomic_t setter_entered,setter_done;
 #endif
 static uint32_t rendered_elapsed;
+static bool host_frame_idle; /* is_idle of the last frame the effect rendered */
 static int64_t k_uptime_get(void) { return now; }
 static uint32_t kp_rgb_clock_ms(void) { return (uint32_t)now; }
 static bool k_is_in_isr(void) { return isr; }
@@ -258,7 +259,7 @@ static uint32_t host_transfer_ms;
 static bool host_render_animating = true;
 static uint8_t host_render_red = 17;
 static bool render(const struct device *d,const struct kp_rgb_frame *f) {
- (void)d; assert(held); renders++;rendered_elapsed=f->elapsed_ms;
+ (void)d; assert(held); renders++;rendered_elapsed=f->elapsed_ms;host_frame_idle=f->is_idle;
  assert(f->targets && !f->scratch && f->count==KP_LED_COUNT);
  for(size_t n=0;n<f->target_count;n++) f->pixels[f->targets[n]].r=host_render_red;
  if(host_render_hook) host_render_hook();
@@ -336,7 +337,24 @@ FUNCTIONS = [
 ]
 
 
-def run_tests(tests, *, scheduler=False, cases=(None,), auto_off_idle=True, allow_unused=False):
+# With CONFIG_KEYPAW_DISPLAY_SETTINGS the LEDs follow the idle policy (idle_policy.c):
+# the policy is a stand-in whose answers the test sets, and the mapping of the strip
+# tells the LEDs under the keys from the underglow (the flag of the NO_KEY entries).
+DISPLAY_SETTINGS_PRELUDE = r'''
+#define KP_RGB_NO_KEY_XY_FLAG 0x80000000u
+static uint32_t kp_map[KP_LED_COUNT ? KP_LED_COUNT : 1];
+static bool host_keys_off, host_glow_off;
+static bool kp_idle_keys_off(void) { return host_keys_off; }
+static bool kp_idle_glow_off(void) { return host_glow_off; }
+'''
+# What the display settings add to rgb_matrix.c: the helpers go before the functions that
+# call them, the policy's callback after the ones it calls.
+DISPLAY_SETTINGS_FUNCTIONS = ["kp_rgb_has_group_leds", "kp_rgb_apply_idle_masks"]
+DISPLAY_SETTINGS_CALLBACKS = ["kp_rgb_idle_changed"]
+
+
+def run_tests(tests, *, scheduler=False, cases=(None,), auto_off_idle=True, allow_unused=False,
+              display_settings=False):
     """Build fresh fixtures for LED and zero-LED configurations; propagate failures."""
     with tempfile.TemporaryDirectory() as directory:
         for leds in (2, 0):
@@ -344,13 +362,19 @@ def run_tests(tests, *, scheduler=False, cases=(None,), auto_off_idle=True, allo
             source.write_text(
                 f"#define KP_LED_COUNT {leds}\n#define HOST_SCHEDULER {int(scheduler)}\n"
                 f"#define CONFIG_KEYPAW_RGB_MATRIX_AUTO_OFF_IDLE {int(auto_off_idle)}\n"
-                + PRELUDE + "\n".join(function(name, INSTANCE_SOURCE) for name in (
+                f"#define CONFIG_KEYPAW_DISPLAY_SETTINGS {int(display_settings)}\n"
+                + PRELUDE + (DISPLAY_SETTINGS_PRELUDE if display_settings else "")
+                + "".join(function(name) + "\n" for name in
+                          (DISPLAY_SETTINGS_FUNCTIONS if display_settings else ()))
+                + "\n".join(function(name, INSTANCE_SOURCE) for name in (
                     'kp_rgb_callbacks_reset', 'kp_rgb_callbacks_set_active',
                     'kp_rgb_callbacks_on_event', 'kp_rgb_callbacks_render', 'kp_rgb_effect_render',
                     'kp_rgb_instance_callbacks', 'kp_rgb_effect_instance_set_active',
                     'kp_rgb_effect_instance_reset', 'kp_rgb_effect_instance_on_event',
                     'kp_rgb_effect_instance_render', 'kp_rgb_effect_instance_restart_clock'))
-                + "\n".join(map(function, FUNCTIONS))
+                + "\n".join(map(function, FUNCTIONS)) + "\n"
+                + "".join(function(name) + "\n" for name in
+                          (DISPLAY_SETTINGS_CALLBACKS if display_settings else ()))
                 + TOGGLE_FUNCTION + ACTIVITY_FUNCTION + '\n#define runtime (kp_rgb_effect_scenes[0].state)\n' + tests
             )
             binary = pathlib.Path(directory) / "engine"

@@ -76,10 +76,11 @@ zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_TRIGGERS rgb_triggers.c)
 # source list, which only exists on the central.
 zephyr_library_sources_ifdef(CONFIG_KEYPAW_RGB_SPLIT_SYNC rgb_split_sync.c)
 
-# Display (OLED) settings: contrast, screen off, toast. Both halves keep them; the
-# central also pushes them to its peripheral, through the RGB behavior and the
-# split sync above.
-zephyr_library_sources_ifdef(CONFIG_KEYPAW_DISPLAY_SETTINGS display_settings.c)
+# Display (OLED) settings: contrast, when the screen and the lights go off, toast,
+# anti burn-in. Both halves keep them; the central also pushes them to its
+# peripheral, through the RGB behavior and the split sync above. idle_policy.c
+# counts the idle time that the screen and the LEDs follow.
+zephyr_library_sources_ifdef(CONFIG_KEYPAW_DISPLAY_SETTINGS display_settings.c idle_policy.c)
 
 # The event that tells the screen widgets that the OLED layout changed is declared
 # in include/zmk/events/display_settings_changed.h; display_settings.c raises it.
