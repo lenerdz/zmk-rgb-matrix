@@ -883,12 +883,13 @@ options of the build and are drawn where the build says. The e-paper screens (ni
 and the like) are not supported.
 
 **Cost.** Measured in the CI of [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-with the option on against off: the right half grows 254,652 bytes of flash (every
-animation and image is built in: 167,216 bytes of it is the data of the 59 pictures of the
-kinds 7 to 65, and the rest is the descriptors of the pictures and the code that puts the
-picture on the canvas) and 616 bytes of RAM, and the left half 2,592 bytes of flash and 240
-bytes of RAM. The 40 pictures of the kinds 26 to 65 alone added 114,616 bytes of flash to
-the right half and nothing to its RAM.
+with the option on against off (the same build with and without
+`CONFIG_KEYPAW_OLED_LAYOUT`): the right half grows 244,964 bytes of flash (every
+animation and image is built in: 160,768 bytes of it is the data of the 37 pictures that
+the fork adds, and the rest is the descriptors of the pictures and the code that puts the
+picture on the canvas) and 624 bytes of RAM, and the left half 1,528 bytes of flash and 240
+bytes of RAM. The growth of the right half was 254,652 bytes (with 59 pictures) before the
+22 still images were taken out.
 
 **Status.** The table of the layout and its defaults (taken from the options of the
 Corne of that repository), the ranges (those of the turn, the mix and the piece too), the

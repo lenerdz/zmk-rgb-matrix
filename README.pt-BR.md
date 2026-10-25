@@ -891,12 +891,13 @@ animação de bateria inteligente continuam sendo opções do build e são desen
 build diz. As telas e-paper (nice!view e parecidas) não são suportadas.
 
 **Custo.** Medido no CI do [lenerdz/corne-zmk](https://github.com/lenerdz/corne-zmk),
-com a opção ligada contra desligada: a metade direita cresce 254.652 bytes de flash
-(todas as animações e imagens são compiladas: 167.216 bytes delas são os dados das 59
-imagens dos tipos 7 a 65, e o resto são os descritores das imagens e o código que coloca a
-imagem no canvas) e 616 bytes de RAM, e a metade esquerda 2.592 bytes de flash e 240 bytes
-de RAM. As 40 imagens dos tipos 26 a 65, sozinhas, somaram 114.616 bytes de flash à metade
-direita e nada à RAM dela.
+com a opção ligada contra desligada (o mesmo build com e sem
+`CONFIG_KEYPAW_OLED_LAYOUT`): a metade direita cresce 244.964 bytes de flash (todas as
+animações e imagens são compiladas: 160.768 bytes delas são os dados das 37 imagens que o
+fork acrescenta, e o resto são os descritores das imagens e o código que coloca a imagem
+no canvas) e 624 bytes de RAM, e a metade esquerda 1.528 bytes de flash e 240 bytes de
+RAM. O crescimento da metade direita era de 254.652 bytes (com 59 imagens) antes de as 22
+imagens fixas serem tiradas.
 
 **Situação.** A tabela do layout e os padrões dela (tirados das opções do Corne daquele
 repositório), as faixas (as do giro, da mistura e do pedaço também), o evento de
